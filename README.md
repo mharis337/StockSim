@@ -20,7 +20,7 @@ A full-stack stock trading simulation application that allows users to mimic buy
 
 ### **Machine Learning Integration**
 - **Python-based models** for buy/sell predictions and decision-making.
-- Models built with **TensorFlow**, **PyTorch**, and **Scikit-learn**.
+- Models built with **TensorFlow** for deep learning and predictive analytics.
 - Performance metrics tracked and compared for model evaluation.
 
 ### **Database**
@@ -51,9 +51,8 @@ A full-stack stock trading simulation application that allows users to mimic buy
 
 ### **Machine Learning**
 - **Python**:
-  - **TensorFlow** and **PyTorch** for deep learning.
-  - **Scikit-learn** for traditional machine learning models.
-- REST API integration for ML models using **Flask**.
+  - **TensorFlow** for deep learning models.
+  - REST API integration for ML models using **Flask**.
 
 ### **Data Source**
 - **Alpha Vantage API**: For stock market data.
@@ -118,7 +117,7 @@ npm start
 ### **6. Machine Learning Models**
 Ensure Python dependencies are installed:
 ```bash
-pip install tensorflow pytorch scikit-learn flask
+pip install tensorflow flask
 ```
 Run the ML API:
 ```bash
