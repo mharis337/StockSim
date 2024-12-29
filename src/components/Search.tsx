@@ -1,19 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import StockChart from "./StockChart";
 
 const Search = () => {
   const [symbol, setSymbol] = useState("");
   const [timeframe, setTimeframe] = useState("1d");
-  const [interval, setInterval] = useState("1h");
-
+  const [interval, setIntervalValue] = useState("1h"); // Renamed to avoid conflict with window.setInterval
   const [stockData, setStockData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [autoUpdate, setAutoUpdate] = useState(false);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const fetchData = async () => {
     try {
       const response = await fetch(
         `http://localhost:5000/api/stock/${symbol}?interval=${interval}&timeframe=${timeframe}`
@@ -33,6 +31,25 @@ const Search = () => {
       console.error("Failed to fetch data:", err);
       setError("Failed to fetch stock data");
       setStockData([]);
+    }
+  };
+
+  // Handle auto-updates for "Now" mode
+  useEffect(() => {
+    if (autoUpdate && symbol) {
+      fetchData(); // Initial fetch
+      const intervalId = setInterval(fetchData, 60000); // Fetch every minute
+      return () => clearInterval(intervalId); // Cleanup on unmount
+    }
+  }, [autoUpdate, symbol]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (interval === "1m" && timeframe === "1h") {
+      setAutoUpdate(true); // Enable auto-update for "Now"
+    } else {
+      setAutoUpdate(false); // Disable auto-update
+      fetchData();
     }
   };
 
@@ -84,11 +101,9 @@ const Search = () => {
             id="interval"
             className="bg-gray-50 border border-gray-300 text-gray-900 text-sm focus:ring-blue-500 focus:border-blue-500 block p-2.5"
             value={interval}
-            onChange={(e) => setInterval(e.target.value)}
+            onChange={(e) => setIntervalValue(e.target.value)}
           >
-            {/* <option value="1m">1 minute</option>
-            <option value="2m">2 minutes</option>
-            <option value="5m">5 minutes</option> */}
+            <option value="1m">1 minute</option>
             <option value="15m">15 minutes</option>
             <option value="30m">30 minutes</option>
             <option value="60m">60 minutes</option>
@@ -116,7 +131,7 @@ const Search = () => {
         <div className="mt-4">
           <h2 className="text-lg font-semibold text-gray-900">Stock Price Chart:</h2>
           <StockChart data={stockData} interval={interval} />
-          </div>
+        </div>
       )}
     </div>
   );
