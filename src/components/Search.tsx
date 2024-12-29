@@ -110,10 +110,10 @@ const Search = () => {
             <option value="90m">90 minutes</option>
             <option value="1h">1 hour</option>
             <option value="1d">1 day</option>
-            <option value="5d">5 days</option>
+            {/* <option value="5d">5 days</option>
             <option value="1wk">1 week</option>
             <option value="1mo">1 month</option>
-            <option value="3mo">3 months</option>
+            <option value="3mo">3 months</option> */}
           </select>
         </div>
 
