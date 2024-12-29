@@ -1,12 +1,25 @@
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pydantic import BaseModel
+from pymongo import MongoClient
 import yfinance as yf
 import pandas as pd
+from fastapi.responses import JSONResponse
 import pytz
+import os
+from dotenv import load_dotenv
 
-app = FastAPI(title="Stock API", version="1.0.0")
+load_dotenv()
 
+# FastAPI app initialization
+app = FastAPI(title="Stock API with Auth", version="1.0.1")
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -15,54 +28,121 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VALID_INTERVALS = [
-    "15m", "30m", 
-    "60m", "90m", "1h", 
-    "1d", "5d", "1wk", "1mo", "3mo"
-]
+# JWT Configuration
+SECRET_KEY = "your-secret-key"  # Change this to a secure secret key
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-VALID_PERIODS = [
-    "1d", "5d", "1wk", "1mo", "3mo", 
-    "6mo", "1y", "2y", "5y", "10y", "ytd", "max"
-]
+# MongoDB connection
+mongo_uri = os.getenv("MONGO_URI")
+if not mongo_uri:
+    raise RuntimeError("MONGO_URI environment variable not set")
 
-TIMEFRAME_MAP = {
-    "1d": "1d",
-    "5d": "5d",
-    "1wk": "1w",
-    "1mo": "1mo",
-    "3mo": "3mo",
-    "6mo": "6mo",
-    "1y": "1y",
-    "2y": "2y",
-    "5y": "5y",
-    "10y": "10y",
-    "ytd": "ytd",
-    "max": "max"
-}
+client = MongoClient(mongo_uri)
+db = client["StockSim"]
+users_collection = db["users"]
+
+# Security utilities
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+class User(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    return email
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the Stock API (yfinance version)"}
+    return {"message": "Welcome to the Stock API with Auth"}
 
-import pytz
+@app.post("/api/register")
+async def register(user: User):
+    if users_collection.find_one({"email": user.email}):
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    hashed_password = pwd_context.hash(user.password)
+    users_collection.insert_one({
+        "email": user.email,
+        "password": hashed_password
+    })
+    return {"message": "User registered successfully"}
+
+@app.post("/api/login", response_model=Token)
+async def login(user: User):
+    try:
+        user_data = users_collection.find_one({"email": user.email})
+        
+        if not user_data or not pwd_context.verify(user.password, user_data["password"]):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid email or password"}
+            )
+
+        # Create access token
+        access_token = create_access_token(data={"sub": user.email})
+        
+        # Create the response
+        response = JSONResponse(
+            content={
+                "access_token": access_token,
+                "token_type": "bearer"
+            }
+        )
+        
+        # Set cookie
+        response.set_cookie(
+            key="auth_token",
+            value=access_token,
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
+            max_age=1800  # 30 minutes
+        )
+        
+        return response
+        
+    except Exception as e:
+        print(f"Login error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"}
+        )
+
+@app.get("/api/protected")
+async def protected_route(current_user: str = Depends(get_current_user)):
+    return {"message": "You are authorized", "user": current_user}
 
 def align_to_market_open(df, interval, market_open_time="09:30"):
-    """
-    Align timestamps to market open (9:30 AM ET) only for specific intervals (1m, 2m, 5m, 1h).
-    For other intervals, the timestamps are left unchanged.
-
-    Parameters:
-        df (pd.DataFrame): DataFrame containing a 'Date' column with tz-aware timestamps.
-        interval (str): The interval of the data (e.g., 1m, 2m, 5m, 1h).
-        market_open_time (str): Market open time in HH:MM format.
-
-    Returns:
-        pd.DataFrame: DataFrame with adjusted timestamps.
-    """
-
     if interval not in ["1m", "2m", "5m", "1h"]:
-        return df  
+        return df
 
     market_open_hour, market_open_minute = map(int, market_open_time.split(":"))
 
@@ -79,19 +159,13 @@ def align_to_market_open(df, interval, market_open_time="09:30"):
 
     return df
 
-
-
 @app.get("/api/stock/{symbol}")
-def get_stock_data(symbol: str, interval: str = "1h", timeframe: str = "5d"):
-    """
-    Fetch OHLCV data from yfinance for the given symbol, flattened to:
-      - Date (ISO string, e.g. 2024-12-27T15:30:00)
-      - Open
-      - High
-      - Low
-      - Close
-      - Volume
-    """
+async def get_stock_data(
+    symbol: str, 
+    interval: str = "1h", 
+    timeframe: str = "5d",
+    current_user: str = Depends(get_current_user)
+):
     try:
         df = yf.download(tickers=symbol, period=timeframe, interval=interval)
         if df.empty:
@@ -124,3 +198,7 @@ def get_stock_data(symbol: str, interval: str = "1h", timeframe: str = "5d"):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

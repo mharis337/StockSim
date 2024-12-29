@@ -1,0 +1,9 @@
+fastapi==0.115.6
+pydantic==1.10.19
+fastapi-jwt-auth==0.5.0
+yfinance==0.2.20
+pandas==1.5.3
+pytz==2023.3
+passlib==1.7.4
+pymongo==4.3.3
+python-dotenv==1.0.0
