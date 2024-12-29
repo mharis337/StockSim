@@ -20,7 +20,7 @@ interface StockChartProps {
 const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
 
-  const intradayIntervals = ["1m","2m","5m","15m","30m","60m","90m","1h"];
+  const intradayIntervals = ["15m","30m","60m","90m","1h"];
   const isIntraday = intradayIntervals.includes(interval);
   
   const transformedData = data.map((row) => {
