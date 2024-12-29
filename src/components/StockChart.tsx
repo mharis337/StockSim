@@ -23,14 +23,19 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
   useEffect(() => {
     if (!data || !Array.isArray(data) || data.length === 0 || !chartRef.current) return;
 
+    // ------------------------------------------------
+    // 1) Basic chart setup
+    // ------------------------------------------------
     const svg = d3.select(chartRef.current);
     const width = 800;
     const height = 400;
-    const margin = { top: 20, right: 30, bottom: 30, left: 50 };
+    const margin = { top: 20, right: 30, bottom: 70, left: 50 };
 
-    svg.selectAll("*").remove(); // Clear previous content
+    svg.selectAll("*").remove(); // Clear previous render
 
-    // Filter data to include only trading hours (9:30 AM - 4:00 PM)
+    // ------------------------------------------------
+    // 2) Filter data to trading hours (9:30 - 16:00)
+    // ------------------------------------------------
     const filteredData = data.filter((d) => {
       const date = new Date(d.Date);
       const hours = date.getHours();
@@ -38,22 +43,63 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
       return (hours === 9 && minutes >= 30) || (hours > 9 && hours < 16);
     });
 
-    // X Scale
-    const xScale = d3
-      .scaleTime()
-      .domain(d3.extent(filteredData, (d) => new Date(d.Date)) as [Date, Date])
+    // ------------------------------------------------
+    // 3) Compute ContinuousTime (skipping nights)
+    // ------------------------------------------------
+    let cumulativeOffset = 0;
+    const mappedData = filteredData.map((d, i, arr) => {
+      const currentDate = new Date(d.Date);
+      const prevDate = i > 0 ? new Date(arr[i - 1].Date) : null;
+
+      // If new trading day, add 390 minutes (6.5 hours)
+      if (
+        prevDate &&
+        (currentDate.getDate() !== prevDate.getDate() ||
+          currentDate.getMonth() !== prevDate.getMonth() ||
+          currentDate.getFullYear() !== prevDate.getFullYear())
+      ) {
+        cumulativeOffset += 390;
+      }
+
+      // Offset from 9:30 a.m.
+      const tradingStart = new Date(currentDate);
+      tradingStart.setHours(9, 30, 0, 0);
+      const minutesSinceStart =
+        (currentDate.getTime() - tradingStart.getTime()) / (1000 * 60);
+
+      return {
+        ...d,
+        ContinuousTime: cumulativeOffset + minutesSinceStart,
+      };
+    });
+
+    // ------------------------------------------------
+    // 4) Determine X / Y domains
+    // ------------------------------------------------
+    const xDomain = d3.extent(mappedData, (d) => d.ContinuousTime) as [number, number];
+    const [domainStart, domainEnd] = xDomain;
+    const chartSpan = domainEnd - domainStart; // total coverage in minutes
+
+    const yDomain = [
+      d3.min(mappedData, (d) => d.Low) ?? 0,
+      d3.max(mappedData, (d) => d.High) ?? 0,
+    ];
+
+    // Base scales (before zooming)
+    const xScaleBase = d3
+      .scaleLinear()
+      .domain([domainStart, domainEnd])
       .range([margin.left, width - margin.right]);
 
-    // Y Scale
     const yScale = d3
       .scaleLinear()
-      .domain([
-        d3.min(filteredData, (d) => d.Low) || 0,
-        d3.max(filteredData, (d) => d.High) || 0,
-      ])
+      .domain(yDomain)
       .nice()
       .range([height - margin.bottom, margin.top]);
 
+    // ------------------------------------------------
+    // 5) Setup chart groups
+    // ------------------------------------------------
     const chartContent = svg.append("g").attr("clip-path", "url(#clip)");
 
     const xAxisGroup = svg
@@ -66,16 +112,56 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
       .attr("class", "y-axis")
       .attr("transform", `translate(${margin.left},0)`);
 
-    const updateAxes = (newXScale: any) => {
-      const tickFormat = d3.timeFormat("%b %d %H:%M"); // Day:Time format
+    // ------------------------------------------------
+    // 6) X Axis tick formatting
+    // ------------------------------------------------
+    // We only display the date on the *first tick* of each trading day;
+    // otherwise, just the time (HH:MM).
+    const formatDateTime = d3.timeFormat("%b %d %H:%M"); // e.g. "Aug 10 09:30"
+    const formatTimeOnly = d3.timeFormat("%H:%M");       // e.g. "09:30"
 
+    const tickFormat = (d: number, i: number, ticks: number[]) => {
+      // dayOffset = floor(continuousMinutes / 390)
+      const dayOffset = Math.floor(d / 390);
+      const intraDay = d % 390;
+
+      // Reconstruct a Date object for this dayOffset + minutes
+      const baseDate = new Date(data[0].Date);
+      baseDate.setDate(baseDate.getDate() + dayOffset);
+      baseDate.setHours(9, 30, 0, 0);
+      baseDate.setMinutes(baseDate.getMinutes() + intraDay);
+
+      if (i === 0) {
+        // First tick => date + time
+        return formatDateTime(baseDate);
+      } else {
+        const prevDayOffset = Math.floor(ticks[i - 1] / 390);
+        if (dayOffset !== prevDayOffset) {
+          // Day changed => show date + time
+          return formatDateTime(baseDate);
+        } else {
+          // Same day => time only
+          return formatTimeOnly(baseDate);
+        }
+      }
+    };
+
+    // ------------------------------------------------
+    // 7) Update Axes & Render functions
+    // ------------------------------------------------
+    function updateAxes(xScale: d3.ScaleLinear<number, number>) {
       xAxisGroup
-        .call(d3.axisBottom(newXScale).ticks(10).tickFormat(tickFormat))
+        .call(d3.axisBottom(xScale).ticks(10).tickFormat(tickFormat as any))
         .selectAll("text")
         .attr("fill", "#333")
         .style("font-size", "12px")
-        .style("text-anchor", "end")
-        .attr("transform", "rotate(-45)");
+        // rotate 90 degrees
+        .style("text-anchor", "start")
+        .attr("transform", function () {
+          // Rotate around the text’s current position
+          // shift the label so it doesn't overlap the axis
+          return `rotate(270) translate(-70, 0)`;
+        });
 
       xAxisGroup
         .select(".domain")
@@ -87,20 +173,21 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
         .selectAll("text")
         .attr("fill", "#333")
         .style("font-size", "12px");
-    };
+    }
 
-    const renderChart = (newXScale: any) => {
-      const visibleData = filteredData.filter((d) => {
-        const date = new Date(d.Date);
-        return date >= newXScale.domain()[0] && date <= newXScale.domain()[1];
-      });
+    function renderChart(xScale: d3.ScaleLinear<number, number>) {
+      const [minX, maxX] = xScale.domain();
+      const visibleData = mappedData.filter(
+        (d) => d.ContinuousTime >= minX && d.ContinuousTime <= maxX
+      );
 
-      chartContent.selectAll("*").remove(); // Clear previous content
+      chartContent.selectAll("*").remove(); // clear old content
 
       if (chartType === "line") {
-        const line = d3
+        // Line chart
+        const lineGenerator = d3
           .line<StockRow>()
-          .x((d) => newXScale(new Date(d.Date)))
+          .x((d) => xScale(d.ContinuousTime))
           .y((d) => yScale(d.Close))
           .curve(d3.curveMonotoneX);
 
@@ -110,8 +197,9 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
           .attr("fill", "none")
           .attr("stroke", "#4F46E5")
           .attr("stroke-width", 2)
-          .attr("d", line);
-      } else if (chartType === "ticker") {
+          .attr("d", lineGenerator);
+      } else {
+        // Candlestick / Ticker
         chartContent
           .selectAll(".candle")
           .data(visibleData)
@@ -119,58 +207,80 @@ const StockChart: React.FC<StockChartProps> = ({ data }) => {
           .attr("class", "candle")
           .each(function (d) {
             const group = d3.select(this);
-            group.append("line")
-              .attr("x1", newXScale(new Date(d.Date)))
-              .attr("x2", newXScale(new Date(d.Date)))
+
+            // Wick (high-low)
+            group
+              .append("line")
+              .attr("x1", xScale(d.ContinuousTime))
+              .attr("x2", xScale(d.ContinuousTime))
               .attr("y1", yScale(d.High))
               .attr("y2", yScale(d.Low))
               .attr("stroke", "#333");
 
-            group.append("rect")
-              .attr("x", newXScale(new Date(d.Date)) - 2)
+            // Body
+            group
+              .append("rect")
+              .attr("x", xScale(d.ContinuousTime) - 2)
               .attr("y", yScale(Math.max(d.Open, d.Close)))
               .attr("width", 4)
               .attr("height", Math.abs(yScale(d.Open) - yScale(d.Close)))
               .attr("fill", d.Open > d.Close ? "red" : "green");
           });
       }
-    };
+    }
 
-    const zoom = d3
-      .zoom()
-      .scaleExtent([1, 90]) // Zoom scale range (1 minute to 90 minutes)
+    // ------------------------------------------------
+    // 8) Zoom Configuration
+    // ------------------------------------------------
+    // INTERVAL = smallest domain length allowed (fully zoomed in).
+    // PERIOD   = the full domain (fully zoomed out).
+    const INTERVAL = 15;                // e.g. 1 minute
+    const PERIOD = chartSpan;          // entire dataset
+
+    // Scale factor = (original domain size) / (new domain size).
+    // domain size = chartSpan => scale = 1 (zoomed out).
+    // domain size = INTERVAL => scale = chartSpan / INTERVAL (zoomed in).
+    const minScale = 1;
+    const maxScale = chartSpan / INTERVAL;
+
+    const zoomBehavior = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([minScale, maxScale])
       .translateExtent([
         [margin.left, margin.top],
         [width - margin.right, height - margin.bottom],
       ])
       .on("zoom", (event) => {
-        const { transform } = event;
+        // Rescale using the transform
+        const xScaleZoomed = event.transform.rescaleX(xScaleBase);
 
-        // Rescale the x-axis
-        const zoomedXScale = transform.rescaleX(xScale);
+        // Clamp panning so we don't drag off the left/right
+        let [minX, maxX] = xScaleZoomed.domain();
 
-        // Dynamically adjust intervals based on zoom level
-        const newInterval =
-          transform.k < 10
-            ? 90
-            : transform.k < 30
-            ? 30
-            : transform.k < 60
-            ? 15
-            : transform.k < 90
-            ? 5
-            : 1; // Decrease interval as zoom increases
+        if (minX < domainStart) {
+          const shift = domainStart - minX;
+          minX += shift;
+          maxX += shift;
+        }
+        if (maxX > domainEnd) {
+          const shift = maxX - domainEnd;
+          minX -= shift;
+          maxX -= shift;
+        }
 
-        updateAxes(zoomedXScale);
+        xScaleZoomed.domain([minX, maxX] as [number, number]);
 
-        renderChart(zoomedXScale);
+        updateAxes(xScaleZoomed);
+        renderChart(xScaleZoomed);
       });
 
-    svg.call(zoom);
+    svg.call(zoomBehavior as any);
 
-    // Initial render
-    updateAxes(xScale);
-    renderChart(xScale);
+    // ------------------------------------------------
+    // 9) Initial Render
+    // ------------------------------------------------
+    updateAxes(xScaleBase);
+    renderChart(xScaleBase);
   }, [data, chartType]);
 
   return (
