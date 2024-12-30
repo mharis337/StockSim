@@ -2,13 +2,13 @@
 
 import ProtectedLayout from "@/components/ProtectedLayout";
 
-export default function DashboardLayout({
+export default function TradeLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <ProtectedLayout currentPage="dashboard">
+    <ProtectedLayout currentPage="trade">
       {children}
     </ProtectedLayout>
   );

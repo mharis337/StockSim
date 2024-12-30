@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -19,15 +20,15 @@ load_dotenv()
 # FastAPI app initialization
 app = FastAPI(title="Stock API with Auth", version="1.0.1")
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
-
 # JWT Configuration
 SECRET_KEY = "your-secret-key"  # Change this to a secure secret key
 ALGORITHM = "HS256"
@@ -41,6 +42,7 @@ if not mongo_uri:
 client = MongoClient(mongo_uri)
 db = client["StockSim"]
 users_collection = db["users"]
+
 
 # Security utilities
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -65,19 +67,28 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    print("\n=== Auth Debug ===")
+    print(f"Received token: {token[:20]}...")  # Only print first 20 chars for security
+    
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
+        print(f"Decoded email from token: {email}")
+        
         if email is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    return email
+            print("No email in token")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+            
+        return email
+        
+    except JWTError as e:
+        print(f"JWT Error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        print(f"Other error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
+    finally:
+        print("=== End Auth Debug ===\n")
 
 @app.get("/")
 def read_root():
@@ -147,6 +158,152 @@ async def logout():
     response.delete_cookie("auth_token")  # Clear the token cookie
     return response
 
+@app.post("/api/refresh")
+async def refresh_token(current_user: str = Depends(get_current_user)):
+    try:
+        # Create a new access token
+        access_token = create_access_token(
+            data={"sub": current_user},
+            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        
+        # Create the response
+        response = JSONResponse(
+            content={
+                "access_token": access_token,
+                "token_type": "bearer"
+            }
+        )
+        
+        # Set cookie
+        response.set_cookie(
+            key="auth_token",
+            value=access_token,
+            httponly=True,
+            secure=False,  # Set to True in production with HTTPS
+            samesite="lax",
+            max_age=1800  # 30 minutes
+        )
+        
+        return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not refresh token"
+        )
+
+
+@app.options("/api/user/balance")
+async def balance_options():
+    return {"message": "OK"}
+
+@app.get("/api/user/balance")
+async def get_user_balance(current_user: str = Depends(get_current_user)):
+    try:
+        user = users_collection.find_one({"email": current_user})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"balance": float(user.get("balance", 0))}
+    except Exception as e:
+        print(f"Error in get_user_balance: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/transaction")
+async def create_transaction(
+    transaction: dict,
+    current_user: str = Depends(get_current_user)
+):
+    user = users_collection.find_one({"email": current_user})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    current_balance = user.get("balance", 0)
+    total_cost = transaction["quantity"] * transaction["price"]
+
+    if transaction["type"] == "buy":
+        if total_cost > current_balance:
+            raise HTTPException(status_code=400, detail="Insufficient funds")
+        new_balance = current_balance - total_cost
+    else:  # sell
+        new_balance = current_balance + total_cost
+
+    # Update user's balance
+    users_collection.update_one(
+        {"email": current_user},
+        {"$set": {"balance": new_balance}}
+    )
+
+    # Record the transaction
+    transaction_record = {
+        "user_email": current_user,
+        "symbol": transaction["symbol"],
+        "quantity": transaction["quantity"],
+        "price": transaction["price"],
+        "type": transaction["type"],
+        "timestamp": datetime.utcnow()
+    }
+    db["transactions"].insert_one(transaction_record)
+    
+    return {"message": "Transaction successful", "newBalance": new_balance}   
+
+
+@app.get("/api/portfolio")
+async def get_portfolio(current_user: str = Depends(get_current_user)):
+    try:
+        # Get all transactions for the user
+        transactions = list(db["transactions"].find({"user_email": current_user}))
+        
+        # Calculate holdings
+        holdings = {}
+        for tx in transactions:
+            symbol = tx["symbol"]
+            quantity = tx["quantity"] if tx["type"] == "buy" else -tx["quantity"]
+            
+            if symbol not in holdings:
+                holdings[symbol] = 0
+            holdings[symbol] += quantity
+        
+        # Remove symbols with zero quantity
+        holdings = {k: v for k, v in holdings.items() if v > 0}
+        
+        # Get current prices for all held stocks
+        portfolio = []
+        for symbol, quantity in holdings.items():
+            try:
+                # Fetch latest price
+                stock_data = yf.download(symbol, period="1d", interval="1m")
+                if not stock_data.empty:
+                    current_price = stock_data['Close'][-1]
+                    market_value = current_price * quantity
+                    
+                    portfolio.append({
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "current_price": current_price,
+                        "market_value": market_value
+                    })
+            except Exception as e:
+                print(f"Error fetching data for {symbol}: {str(e)}")
+                continue
+        
+        return {"portfolio": portfolio}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/portfolio/history")
+async def get_portfolio_history(current_user: str = Depends(get_current_user)):
+    try:
+        transactions = list(db["transactions"].find(
+            {"user_email": current_user},
+            {'_id': 0}  # Exclude MongoDB _id
+        ))
+        return {"transactions": transactions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @app.get("/api/protected")
 async def protected_route(current_user: str = Depends(get_current_user)):
@@ -213,4 +370,4 @@ async def get_stock_data(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

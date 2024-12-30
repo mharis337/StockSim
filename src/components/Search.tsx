@@ -1,29 +1,54 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import StockChart from "./StockChart";
+import StockInfoPanel from "./StockInfoPanel";
+import BuySell from "./BuySell";
 
 const Search = () => {
+  const router = useRouter();
   const [symbol, setSymbol] = useState("");
   const [timeframe, setTimeframe] = useState("1d");
-  const [interval, setIntervalValue] = useState("1h"); // Renamed to avoid conflict with window.setInterval
+  const [interval, setIntervalValue] = useState("1h");
   const [stockData, setStockData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [autoUpdate, setAutoUpdate] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!symbol) return;
+    
     try {
+      setIsLoading(true);
+      const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token found");
+      }
+
       const response = await fetch(
-        `http://localhost:5000/api/stock/${symbol}?interval=${interval}&timeframe=${timeframe}`
+        `http://localhost:5000/api/stock/${symbol}?interval=${interval}&timeframe=${timeframe}`,
+        {
+          credentials: "include",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        }
       );
+
+      if (response.status === 401) {
+        localStorage.removeItem("token");
+        router.push("/login");
+        return;
+      }
+
       const result = await response.json();
 
       if (response.ok) {
-        console.log("Data from backend:", result.data);
         setStockData(result.data);
         setError(null);
       } else {
-        console.error("Error:", result.detail);
         setError(result.detail || "Unknown error");
         setStockData([]);
       }
@@ -31,107 +56,123 @@ const Search = () => {
       console.error("Failed to fetch data:", err);
       setError("Failed to fetch stock data");
       setStockData([]);
+      
+      if (err instanceof Error && err.message === "No authentication token found") {
+        router.push("/login");
+      }
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [symbol, interval, timeframe, router]);
 
-  // Handle auto-updates for "Now" mode
   useEffect(() => {
-    if (autoUpdate && symbol) {
-      fetchData(); // Initial fetch
-      const intervalId = setInterval(fetchData, 60000); // Fetch every minute
-      return () => clearInterval(intervalId); // Cleanup on unmount
+    if (symbol && autoUpdate) {
+      fetchData();
+      const intervalId = setInterval(fetchData, 30000);
+      return () => clearInterval(intervalId);
     }
-  }, [autoUpdate, symbol]);
+  }, [symbol, autoUpdate, fetchData]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (interval === "1m" && timeframe === "1h") {
-      setAutoUpdate(true); // Enable auto-update for "Now"
-    } else {
-      setAutoUpdate(false); // Disable auto-update
-      fetchData();
-    }
+    setAutoUpdate(true);
+    fetchData();
   };
 
   return (
-    <div style={{ maxWidth: "700px", margin: "100px auto" }}>
-      <form className="flex flex-col gap-4" onSubmit={handleSearch}>
+    <div className="max-w-5xl mx-auto mt-8 p-6 bg-white rounded-lg shadow">
+      <form className="flex flex-col gap-4 mb-6" onSubmit={handleSearch}>
         <div className="flex items-center">
-          <label htmlFor="symbol" className="sr-only">
-            Stock Symbol
-          </label>
           <input
             type="text"
-            id="symbol"
-            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+            className="flex-1 p-2 border rounded text-gray-900 text-base font-medium border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             placeholder="Enter Stock Symbol..."
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             required
           />
         </div>
 
-        <div className="flex items-center gap-4">
-          <label htmlFor="timeframe" className="block text-sm font-medium text-gray-700">
-            Period (Timeframe):
-          </label>
-          <select
-            id="timeframe"
-            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm focus:ring-blue-500 focus:border-blue-500 block p-2.5"
-            value={timeframe}
-            onChange={(e) => setTimeframe(e.target.value)}
-          >
-            <option value="1d">1 Day</option>
-            <option value="5d">5 Days</option>
-            <option value="1mo">1 Month</option>
-            <option value="3mo">3 Months</option>
-            <option value="6mo">6 Months</option>
-            <option value="1y">1 Year</option>
-            <option value="2y">2 Years</option>
-            <option value="5y">5 Years</option>
-            <option value="10y">10 Years</option>
-            <option value="ytd">Year to Date</option>
-            <option value="max">Max</option>
-          </select>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-base font-semibold text-gray-900 mb-1">
+              Period:
+            </label>
+            <select
+              className="w-full p-2 border rounded text-gray-900 text-base font-medium border-gray-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              value={timeframe}
+              onChange={(e) => setTimeframe(e.target.value)}
+            >
+              <option value="1d">1 Day</option>
+              <option value="5d">5 Days</option>
+              <option value="1mo">1 Month</option>
+              <option value="3mo">3 Months</option>
+              <option value="6mo">6 Months</option>
+              <option value="1y">1 Year</option>
+              <option value="2y">2 Years</option>
+              <option value="5y">5 Years</option>
+            </select>
+          </div>
 
-          <label htmlFor="interval" className="block text-sm font-medium text-gray-700">
-            Interval:
-          </label>
-          <select
-            id="interval"
-            className="bg-gray-50 border border-gray-300 text-gray-900 text-sm focus:ring-blue-500 focus:border-blue-500 block p-2.5"
-            value={interval}
-            onChange={(e) => setIntervalValue(e.target.value)}
-          >
-            <option value="1m">1 minute</option>
-            <option value="15m">15 minutes</option>
-            <option value="30m">30 minutes</option>
-            <option value="60m">60 minutes</option>
-            <option value="90m">90 minutes</option>
-            <option value="1h">1 hour</option>
-            <option value="1d">1 day</option>
-            {/* <option value="5d">5 days</option>
-            <option value="1wk">1 week</option>
-            <option value="1mo">1 month</option>
-            <option value="3mo">3 months</option> */}
-          </select>
+          <div>
+            <label className="block text-base font-semibold text-gray-900 mb-1">
+              Interval:
+            </label>
+            <select
+              className="w-full p-2 border rounded text-gray-900 text-base font-medium border-gray-300 bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              value={interval}
+              onChange={(e) => setIntervalValue(e.target.value)}
+            >
+              <option value="1m">1 minute</option>
+              <option value="5m">5 minutes</option>
+              <option value="15m">15 minutes</option>
+              <option value="30m">30 minutes</option>
+              <option value="60m">60 minutes</option>
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
+            </select>
+          </div>
         </div>
 
         <button
           type="submit"
-          className="inline-flex items-center py-2 px-3 text-sm font-medium text-white bg-blue-700 border border-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300"
+          className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors text-base font-semibold shadow-sm"
+          disabled={isLoading}
         >
-          Search
+          {isLoading ? "Loading..." : "Search"}
         </button>
       </form>
 
-      {error && <p className="text-red-500 mt-4">{error}</p>}
+      {error && (
+        <div className="mb-6 p-3 bg-red-100 border border-red-400 text-red-800 rounded-md font-medium">
+          {error}
+        </div>
+      )}
 
       {stockData.length > 0 && (
-        <div className="mt-4">
-          <h2 className="text-lg font-semibold text-gray-900">Stock Price Chart:</h2>
-          <StockChart data={stockData} interval={interval} />
-        </div>
+        <>
+          {/* Stock Info Panel */}
+          <StockInfoPanel data={stockData} symbol={symbol} />
+
+          {/* Chart Section */}
+          <div className="mt-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Price Chart</h2>
+              {autoUpdate && (
+                <div className="text-sm text-green-600 font-medium">
+                  Auto-updating every 30 seconds
+                </div>
+              )}
+            </div>
+            <StockChart data={stockData} interval={interval} />
+          </div>
+
+          {/* Trading Section */}
+          <div className="mt-8 border-t pt-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Trade {symbol}</h2>
+            <BuySell stockData={stockData} symbol={symbol} />
+          </div>
+        </>
       )}
     </div>
   );
