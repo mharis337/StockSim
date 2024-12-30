@@ -15,43 +15,17 @@ export default function ProtectedLayout({
   const [isLoading, setIsLoading] = useState(true);
   const [userEmail, setUserEmail] = useState<string>("");
 
-  const refreshToken = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) return false;
-
-      const response = await fetch("http://localhost:5000/api/refresh", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem("token", data.access_token);
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error("Token refresh failed:", error);
-      return false;
-    }
-  };
+  useEffect(() => {
+    const email = localStorage.getItem("userEmail");
+    if (email) setUserEmail(email);
+  }, []);
 
   const verifyAuth = async () => {
     try {
       const token = localStorage.getItem("token");
-      const email = localStorage.getItem("userEmail");
-      
       if (!token) {
         throw new Error("No token found");
       }
-
-      setUserEmail(email || "");
 
       const response = await fetch("http://localhost:5000/api/protected", {
         method: "GET",
@@ -63,11 +37,7 @@ export default function ProtectedLayout({
       });
 
       if (!response.ok) {
-        // Try to refresh the token if verification fails
-        const refreshSuccess = await refreshToken();
-        if (!refreshSuccess) {
-          throw new Error("Authentication failed");
-        }
+        throw new Error("Authentication failed");
       }
 
       setIsLoading(false);
@@ -82,39 +52,17 @@ export default function ProtectedLayout({
 
   useEffect(() => {
     verifyAuth();
-    
-    // Set up periodic verification and refresh
-    const verifyInterval = setInterval(verifyAuth, 60000); // Check every minute
-    const refreshInterval = setInterval(refreshToken, 25 * 60 * 1000); // Refresh every 25 minutes
-
-    return () => {
-      clearInterval(verifyInterval);
-      clearInterval(refreshInterval);
-    };
-  }, [router]);
+  }, []);
 
   const handleLogout = async () => {
     try {
-      const token = localStorage.getItem("token");
-      
-      const response = await fetch("http://localhost:5000/api/logout", {
+      await fetch("http://localhost:5000/api/logout", {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
       });
-
-      // Clear auth data regardless of response
-      localStorage.removeItem("token");
-      localStorage.removeItem("userEmail");
-      document.cookie = "auth_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
-      
-      router.push("/login");
     } catch (err) {
       console.error("Logout error:", err);
-      // Clear auth data and redirect even if logout fails
+    } finally {
       localStorage.removeItem("token");
       localStorage.removeItem("userEmail");
       document.cookie = "auth_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
@@ -126,7 +74,7 @@ export default function ProtectedLayout({
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#CDB4DB] mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
@@ -134,46 +82,53 @@ export default function ProtectedLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex">
-              <div className="flex-shrink-0 flex items-center">
-                <Link href="/dashboard" className="text-xl font-bold text-blue-600">
-                  StockSim
-                </Link>
-              </div>
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
-                <Link
+    <div className="min-h-screen flex flex-col">
+      <nav style={{ backgroundColor: '#CDB4DB' }} className="shadow-md">
+        <div className="px-4">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <div className="flex items-center">
+              <Link href="/dashboard" className="flex items-center gap-2">
+                <img src="/logo.png" alt="StockSim Logo" className="h-8 w-auto" />
+                <span className="text-xl font-bold text-white">StockSim</span>
+              </Link>
+            </div>
+
+            {/* Navigation */}
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4">
+                <Link 
                   href="/dashboard"
-                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                    currentPage === "dashboard"
-                      ? "border-blue-500 text-gray-900"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
+                  style={{ 
+                    backgroundColor: currentPage === "dashboard" ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                    color: 'white'
+                  }}
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-white/10 transition-colors"
                 >
                   Dashboard
                 </Link>
-                <Link
+                <Link 
                   href="/trade"
-                  className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                    currentPage === "trade"
-                      ? "border-blue-500 text-gray-900"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                  }`}
+                  style={{ 
+                    backgroundColor: currentPage === "trade" ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                    color: 'white'
+                  }}
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-white/10 transition-colors"
                 >
                   Trade
                 </Link>
               </div>
-            </div>
-            <div className="flex items-center space-x-4">
+              
               {userEmail && (
-                <span className="text-sm text-gray-600">{userEmail}</span>
+                <span className="text-white text-sm hidden sm:block">
+                  {userEmail}
+                </span>
               )}
+              
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                style={{ backgroundColor: '#FFAFCC' }}
+                className="text-white hover:bg-opacity-90 px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
                 Logout
               </button>
@@ -182,11 +137,9 @@ export default function ProtectedLayout({
         </div>
       </nav>
 
-      <main>
-        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          {children}
-        </div>
-      </main>
+      <div className="flex-1">
+        {children}
+      </div>
     </div>
   );
 }

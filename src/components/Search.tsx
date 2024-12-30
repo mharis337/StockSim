@@ -80,7 +80,13 @@ const Search = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto mt-8 p-6 bg-white rounded-lg shadow">
+    <div className="bg-white/50 backdrop-blur-sm rounded-lg shadow-lg"
+    style={{ 
+      padding:32,
+      marginLeft: 32,
+      marginRight: 32,
+      marginTop: 32,
+    }}>
       <form className="flex flex-col gap-4 mb-6" onSubmit={handleSearch}>
         <div className="flex items-center">
           <input

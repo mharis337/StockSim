@@ -8,8 +8,14 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ProtectedLayout currentPage="dashboard">
-      {children}
-    </ProtectedLayout>
+    <div className="flex flex-col min-h-screen">
+      <div 
+        className="flex-1 w-full"
+      >
+        <ProtectedLayout currentPage="dashboard">
+          {children}
+        </ProtectedLayout>
+      </div>
+    </div>
   );
 }

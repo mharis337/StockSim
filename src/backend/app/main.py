@@ -251,45 +251,75 @@ async def create_transaction(
 @app.get("/api/portfolio")
 async def get_portfolio(current_user: str = Depends(get_current_user)):
     try:
+        print(f"\n=== Portfolio Debug for {current_user} ===")
+        
         # Get all transactions for the user
         transactions = list(db["transactions"].find({"user_email": current_user}))
+        print(f"Found {len(transactions)} transactions")
         
-        # Calculate holdings
+        # Calculate holdings with detailed logging
         holdings = {}
         for tx in transactions:
             symbol = tx["symbol"]
-            quantity = tx["quantity"] if tx["type"] == "buy" else -tx["quantity"]
+            quantity = tx["quantity"]
+            tx_type = tx["type"]
             
             if symbol not in holdings:
                 holdings[symbol] = 0
-            holdings[symbol] += quantity
+                
+            # Add for buys, subtract for sells
+            if tx_type.lower() == "buy":
+                holdings[symbol] += quantity
+            elif tx_type.lower() == "sell":
+                holdings[symbol] -= quantity
+                
+            print(f"Transaction: {tx_type} {quantity} {symbol} - New Balance: {holdings[symbol]}")
         
-        # Remove symbols with zero quantity
-        holdings = {k: v for k, v in holdings.items() if v > 0}
+        # Debug print all holdings
+        print("\nFinal Holdings:")
+        for symbol, quantity in holdings.items():
+            print(f"{symbol}: {quantity}")
         
-        # Get current prices for all held stocks
+        # Prepare portfolio data
         portfolio = []
         for symbol, quantity in holdings.items():
-            try:
-                # Fetch latest price
-                stock_data = yf.download(symbol, period="1d", interval="1m")
-                if not stock_data.empty:
-                    current_price = stock_data['Close'][-1]
-                    market_value = current_price * quantity
+            if quantity > 0:  # Only include positive holdings
+                try:
+                    print(f"\nFetching price for {symbol}")
+                    ticker = yf.Ticker(symbol)
+                    hist = ticker.history(period="1d")
                     
+                    if not hist.empty:
+                        current_price = float(hist['Close'].iloc[-1])
+                        market_value = current_price * quantity
+                        
+                        portfolio_item = {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "current_price": current_price,
+                            "market_value": market_value
+                        }
+                        portfolio.append(portfolio_item)
+                        print(f"Successfully added {symbol} to portfolio: {portfolio_item}")
+                    else:
+                        print(f"No price data found for {symbol}")
+                        
+                except Exception as e:
+                    print(f"Error fetching price for {symbol}: {str(e)}")
+                    # Include the holding even without price data
                     portfolio.append({
                         "symbol": symbol,
                         "quantity": quantity,
-                        "current_price": current_price,
-                        "market_value": market_value
+                        "current_price": 0,
+                        "market_value": 0,
+                        "price_unavailable": True
                     })
-            except Exception as e:
-                print(f"Error fetching data for {symbol}: {str(e)}")
-                continue
         
+        print(f"\nFinal portfolio data: {portfolio}")
         return {"portfolio": portfolio}
         
     except Exception as e:
+        print(f"Portfolio error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/portfolio/history")
