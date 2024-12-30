@@ -1,4 +1,3 @@
-// components/auth/Login.tsx
 "use client";
 
 import { useState } from "react";
@@ -18,7 +17,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      console.log('Attempting login...');
+      console.log('Starting login process...');
       const response = await fetch("http://localhost:5000/api/login", {
         method: "POST",
         headers: {
@@ -28,23 +27,23 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
 
-      console.log('Response status:', response.status);
+      console.log('Login response status:', response.status);
       
       const data = await response.json();
-      console.log('Response data:', data);
+      console.log('Login response data:', data);
 
       if (!response.ok) {
         throw new Error(data.detail || "Login failed");
       }
 
-      // Store token in localStorage
       if (data.access_token) {
+        console.log('Storing token in localStorage');
         localStorage.setItem("token", data.access_token);
-        console.log('Token stored in localStorage');
+        localStorage.setItem("userEmail", email);
       }
 
-      // Force a hard navigation to dashboard
-      window.location.href = "/dashboard";
+      console.log('Redirecting to dashboard...');
+      router.push("/dashboard");
       
     } catch (err) {
       console.error("Login error:", err);
@@ -54,6 +53,7 @@ export default function Login() {
     }
   };
 
+  // The rest of your component remains the same...
   return (
     <div className="flex h-screen">
       {/* Left Side: Image */}

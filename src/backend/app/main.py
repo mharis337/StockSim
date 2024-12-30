@@ -85,15 +85,20 @@ def read_root():
 
 @app.post("/api/register")
 async def register(user: User):
+    # Check if the user already exists
     if users_collection.find_one({"email": user.email}):
         raise HTTPException(status_code=400, detail="User already exists")
     
+    # Hash the user's password
     hashed_password = pwd_context.hash(user.password)
+    
+    # Insert the new user into the database with a default balance
     users_collection.insert_one({
         "email": user.email,
-        "password": hashed_password
+        "password": hashed_password,
+        "balance": 1000  # Initial balance
     })
-    return {"message": "User registered successfully"}
+    return {"message": "User registered successfully with $1000 balance"}
 
 @app.post("/api/login", response_model=Token)
 async def login(user: User):
@@ -135,6 +140,13 @@ async def login(user: User):
             status_code=500,
             content={"detail": "Internal server error"}
         )
+
+@app.post("/api/logout")
+async def logout():
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    response.delete_cookie("auth_token")  # Clear the token cookie
+    return response
+
 
 @app.get("/api/protected")
 async def protected_route(current_user: str = Depends(get_current_user)):

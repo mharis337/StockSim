@@ -1,4 +1,3 @@
-// src/app/dashboard/layout.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -11,44 +10,59 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-
     const verifyAuth = async () => {
       try {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          throw new Error("No token found");
+        }
+
         const response = await fetch("http://localhost:5000/api/protected", {
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
-          },
+            "Authorization": `Bearer ${token}`
+          }
         });
 
         if (!response.ok) {
-          throw new Error("Authentication failed");
+          throw new Error(`Authentication failed with status ${response.status}`);
         }
 
-        setIsAuthenticated(true);
+        setIsLoading(false);
       } catch (error) {
         console.error("Auth verification failed:", error);
+        // Clear everything and redirect
         localStorage.removeItem("token");
+        localStorage.removeItem("userEmail");
+        
+        // Use document.cookie to clear the auth_token cookie
+        document.cookie = "auth_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+        
         router.push("/login");
-      } finally {
-        setIsLoading(false);
       }
     };
 
     verifyAuth();
   }, [router]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("userEmail");
-    router.push("/login");
+  const handleLogout = async () => {
+    try {
+      // First, call the logout endpoint
+      const response = await fetch("http://localhost:5000/api/logout", {
+        method: "POST",
+        credentials: "include", // Include cookies
+      });
+  
+      if (response.ok) {
+        router.push("/login");
+      } else {
+        console.error("Logout failed");
+      }
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
   };
 
   if (isLoading) {
@@ -59,13 +73,8 @@ export default function DashboardLayout({
     );
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Navigation Bar */}
       <nav className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
@@ -73,7 +82,6 @@ export default function DashboardLayout({
               <div className="flex-shrink-0 flex items-center">
                 <span className="text-xl font-bold text-blue-600">StockSim</span>
               </div>
-              {/* Add navigation items here */}
               <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
                 <a
                   href="/dashboard"
@@ -81,7 +89,6 @@ export default function DashboardLayout({
                 >
                   Dashboard
                 </a>
-                {/* Add more navigation items as needed */}
               </div>
             </div>
             <div className="flex items-center">
@@ -96,7 +103,6 @@ export default function DashboardLayout({
         </div>
       </nav>
 
-      {/* Main Content */}
       <main>
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           {children}
