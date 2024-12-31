@@ -4,63 +4,109 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 interface BuySellProps {
   stockData: any[];
   symbol: string;
+  initialAction?: 'buy' | 'sell';
+  maxSellQuantity?: number;
 }
 
-const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
+const BuySell: React.FC<BuySellProps> = ({ 
+  stockData, 
+  symbol, 
+  initialAction = 'buy',
+  maxSellQuantity = 0 
+}) => {
   const [quantity, setQuantity] = useState<number>(1);
-  const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
+  const [orderType, setOrderType] = useState<'buy' | 'sell'>(initialAction);
   const [userBalance, setUserBalance] = useState<number>(0);
+  const [ownedQuantity, setOwnedQuantity] = useState<number>(0);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isBalanceLoading, setIsBalanceLoading] = useState(true);
 
-  const currentPrice = stockData.length > 0 ? stockData[stockData.length - 1].Close : 0;
-  const totalCost = currentPrice * quantity;
+  const currentPrice = stockData.length > 0 ? 
+    Math.round(stockData[stockData.length - 1].Close * 100) / 100 : 0;
 
+  const totalCost = Math.round((currentPrice * quantity) * 100) / 100;
+
+  // Reset quantity and message when switching order types
   useEffect(() => {
-    const fetchBalance = async () => {
-      try {
-        setIsBalanceLoading(true);
-        const token = localStorage.getItem('token');
-        if (!token) {
-          console.error('No token found');
-          return;
-        }
+    setQuantity(1);
+    setMessage(null);
+  }, [orderType]);
 
-        const response = await fetch('http://localhost:5000/api/user/balance', {
-          method: 'GET',
+  // Fetch user's balance and owned quantity
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('No token found');
+
+        // Fetch balance
+        const balanceResponse = await fetch('http://localhost:5000/api/user/balance', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/json'
           }
         });
 
-        if (response.status === 401) {
-          throw new Error('Unauthorized - please log in again');
-        }
+        if (!balanceResponse.ok) throw new Error('Failed to fetch balance');
+        const balanceData = await balanceResponse.json();
+        setUserBalance(Math.round(balanceData.balance * 100) / 100);
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        // Fetch portfolio to get owned quantity
+        const portfolioResponse = await fetch('http://localhost:5000/api/portfolio', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          }
+        });
 
-        const data = await response.json();
-        console.log('Balance data received:', data);
-        setUserBalance(data.balance);
+        if (!portfolioResponse.ok) throw new Error('Failed to fetch portfolio');
+        const portfolioData = await portfolioResponse.json();
+        const holding = portfolioData.portfolio.find(h => h.symbol === symbol);
+        setOwnedQuantity(holding ? holding.quantity : 0);
+
       } catch (error) {
-        console.error('Error fetching balance:', error);
+        console.error('Error fetching user data:', error);
         setMessage({
           type: 'error',
-          text: error.message || 'Failed to load balance'
+          text: error instanceof Error ? error.message : 'Failed to load user data'
         });
       } finally {
         setIsBalanceLoading(false);
       }
     };
 
-    fetchBalance();
-  }, []);
+    fetchUserData();
+  }, [symbol]);
+
+  const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newQuantity = Math.max(1, parseInt(e.target.value) || 1);
+    if (orderType === 'sell') {
+      setQuantity(Math.min(newQuantity, ownedQuantity));
+    } else {
+      const maxBuyable = Math.floor(userBalance / currentPrice);
+      setQuantity(Math.min(newQuantity, maxBuyable));
+    }
+  };
 
   const handleTransaction = async () => {
+    // Validate transaction
+    if (orderType === 'sell' && quantity > ownedQuantity) {
+      setMessage({
+        type: 'error',
+        text: `You can only sell up to ${ownedQuantity} shares`
+      });
+      return;
+    }
+
+    if (orderType === 'buy' && totalCost > userBalance) {
+      setMessage({
+        type: 'error',
+        text: 'Insufficient funds for this transaction'
+      });
+      return;
+    }
+
     setIsLoading(true);
     setMessage(null);
 
@@ -86,14 +132,14 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
       const data = await response.json();
 
       if (response.ok) {
+        // Update UI after successful transaction
         setMessage({
           type: 'success',
           text: `Successfully ${orderType === 'buy' ? 'bought' : 'sold'} ${quantity} shares of ${symbol}`
         });
         
-        // Fetch updated balance after successful transaction
+        // Refresh balance and owned quantity
         const balanceResponse = await fetch('http://localhost:5000/api/user/balance', {
-          method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/json'
@@ -102,9 +148,10 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
         
         if (balanceResponse.ok) {
           const balanceData = await balanceResponse.json();
-          setUserBalance(balanceData.balance);
-        } else {
-          console.warn('Failed to fetch updated balance');
+          setUserBalance(Math.round(balanceData.balance * 100) / 100);
+          setOwnedQuantity(prev => 
+            orderType === 'buy' ? prev + quantity : prev - quantity
+          );
         }
       } else {
         throw new Error(data.detail || 'Transaction failed');
@@ -121,7 +168,6 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
 
   return (
     <div className="bg-gray-50 rounded-lg shadow p-6">
-      {/* Header with Balance */}
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-xl font-bold text-gray-900">Trade {symbol}</h3>
         <div className="text-right">
@@ -130,14 +176,13 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
             {isBalanceLoading ? (
               <span className="text-gray-400">Loading...</span>
             ) : (
-              `$${userBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              `$${userBalance.toFixed(2)}`
             )}
           </div>
         </div>
       </div>
 
       <div className="space-y-6">
-        {/* Order Type Selection */}
         <div className="flex space-x-4">
           <button
             onClick={() => setOrderType('buy')}
@@ -161,7 +206,12 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
           </button>
         </div>
 
-        {/* Quantity Input */}
+        {orderType === 'sell' && (
+          <div className="text-sm text-gray-600">
+            Available to sell: {ownedQuantity} shares
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Quantity
@@ -169,18 +219,18 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
           <input
             type="number"
             min="1"
+            max={orderType === 'sell' ? ownedQuantity : undefined}
             value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+            onChange={handleQuantityChange}
             className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
           />
         </div>
 
-        {/* Order Summary */}
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <div className="flex justify-between mb-2">
             <span className="text-gray-600 font-medium">Market Price</span>
             <span className="text-gray-900 font-bold">
-              ${currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${currentPrice.toFixed(2)}
             </span>
           </div>
           <div className="flex justify-between mb-2">
@@ -191,7 +241,7 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
             <div className="flex justify-between">
               <span className="text-gray-600 font-semibold">Estimated Total</span>
               <span className="text-gray-900 font-bold">
-                ${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${totalCost.toFixed(2)}
               </span>
             </div>
           </div>
@@ -203,15 +253,20 @@ const BuySell: React.FC<BuySellProps> = ({ stockData, symbol }) => {
           </Alert>
         )}
 
-        {/* Submit Button */}
         <button
           onClick={handleTransaction}
-          disabled={isLoading || (orderType === 'buy' && totalCost > userBalance)}
+          disabled={
+            isLoading || 
+            (orderType === 'buy' && totalCost > userBalance) ||
+            (orderType === 'sell' && quantity > ownedQuantity)
+          }
           className={`w-full py-3 px-4 rounded-lg font-semibold text-base transition-colors
             ${orderType === 'buy' 
               ? 'bg-green-600 text-white hover:bg-green-700' 
               : 'bg-red-600 text-white hover:bg-red-700'}
-            ${(isLoading || (orderType === 'buy' && totalCost > userBalance)) 
+            ${(isLoading || 
+               (orderType === 'buy' && totalCost > userBalance) ||
+               (orderType === 'sell' && quantity > ownedQuantity)) 
               ? 'opacity-50 cursor-not-allowed' 
               : ''}`}
         >
