@@ -18,46 +18,24 @@ const PortfolioSummary = () => {
     const fetchPortfolioData = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) {
-          throw new Error('No authentication token found');
-        }
-
+        if (!token) throw new Error('No authentication token found');
+  
         const response = await fetch('http://localhost:5000/api/portfolio/history', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch portfolio data');
-        }
-
+  
+        if (!response.ok) throw new Error('Failed to fetch portfolio data');
+  
         const data = await response.json();
-        
-        // Ensure we have valid numbers or default to 0
-        const cashBalance = Number(data.cashBalance) || 0;
-        const equity = Number(data.equity) || 0;
-        const totalValue = Number(data.totalValue) || (cashBalance + equity);
-        
-        // Calculate P/L values
-        const todaysPL = equity * 0.02; // Simplified daily P/L calculation
-        const totalPL = equity - 1000; // Assuming initial investment was 1000
-        
-        // Calculate percentages safely
-        const dayPLPercent = totalValue !== 0 ? (todaysPL / totalValue) * 100 : 0;
-        const totalPLPercent = totalPL !== 0 ? (totalPL / 1000) * 100 : 0;
-
         setPortfolioData({
-          totalBalance: totalValue,
-          cashBalance: cashBalance,
-          equity: equity,
-          dayPL: todaysPL,
-          dayPLPercent: dayPLPercent,
-          totalPL: totalPL,
-          totalPLPercent: totalPLPercent
+          totalBalance: data.totalValue,
+          cashBalance: data.cashBalance,
+          equity: data.equity,
+          dayPL: data.dayPL,
+          dayPLPercent: data.dayPLPercent,
+          totalPL: data.totalPL,
+          totalPLPercent: data.totalPLPercent
         });
-
       } catch (error) {
         console.error('Error fetching portfolio data:', error);
         setError('Failed to load portfolio data');
@@ -65,13 +43,12 @@ const PortfolioSummary = () => {
         setIsLoading(false);
       }
     };
-
+  
     fetchPortfolioData();
-    
-    // Refresh data every minute
     const intervalId = setInterval(fetchPortfolioData, 60000);
     return () => clearInterval(intervalId);
   }, []);
+  
 
   // Format currency value with proper handling of invalid numbers
   const formatCurrency = (value) => {

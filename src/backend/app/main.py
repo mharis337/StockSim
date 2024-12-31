@@ -328,28 +328,28 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
 @app.get("/api/portfolio/history")
 async def get_portfolio_history(current_user: str = Depends(get_current_user)):
     try:
-        # Get user from database
+        # Fetch user data
         user = users_collection.find_one({"email": current_user})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
-        # Get user's transactions
-        transactions = list(db["transactions"].find(
-            {"user_email": current_user},
-            {"_id": 0}  # Exclude MongoDB _id field
-        ).sort("timestamp", -1))  # Sort by timestamp descending
-        
-        # Get current holdings and calculate total portfolio value
+
+        # Fetch transactions
+        transactions = list(db["transactions"].find({"user_email": current_user}).sort("timestamp", 1))
         holdings = {}
+        total_investment = 0
+
+        # Calculate holdings and total investment
         for transaction in transactions:
-            symbol = transaction["symbol"]
-            quantity = transaction["quantity"]
-            if transaction["type"] == "buy":
+            symbol = transaction.get("symbol", "")
+            quantity = transaction.get("quantity", 0)
+            price = transaction.get("price", 0)
+            if transaction.get("type", "").lower() == "buy":
+                total_investment += quantity * price
                 holdings[symbol] = holdings.get(symbol, 0) + quantity
             else:  # sell
                 holdings[symbol] = holdings.get(symbol, 0) - quantity
 
-        # Calculate current value of holdings
+        # Fetch current equity
         total_equity = 0
         current_holdings = []
         for symbol, quantity in holdings.items():
@@ -372,17 +372,47 @@ async def get_portfolio_history(current_user: str = Depends(get_current_user)):
                     print(f"Error fetching price for {symbol}: {str(e)}")
                     continue
 
-        return {
-            "cashBalance": user.get("balance", 0),
+        cash_balance = float(user.get("balance", 0))
+        total_value = cash_balance + total_equity
+
+        # Fetch previous day's equity for today's P/L calculation
+        daily_equity = db["daily_equity"].find_one({"user_email": current_user}, sort=[("date", -1)])
+        previous_day_equity = daily_equity["equity"] if daily_equity else 0
+
+        # Calculate P/L
+        dayPL = total_equity - previous_day_equity
+        dayPLPercent = (dayPL / previous_day_equity) * 100 if previous_day_equity > 0 else 0
+        totalPL = total_equity + cash_balance - total_investment
+        totalPLPercent = (totalPL / total_investment) * 100 if total_investment > 0 else 0
+
+        # Update today's equity in the database
+        db["daily_equity"].insert_one({
+            "user_email": current_user,
             "equity": total_equity,
-            "totalValue": user.get("balance", 0) + total_equity,
+            "date": datetime.utcnow()
+        })
+
+        # Ensure transactions are JSON serializable
+        recent_transactions = [
+            {key: value for key, value in tx.items() if key != "_id"} for tx in transactions[:10]
+        ]
+
+        return {
+            "cashBalance": cash_balance,
+            "equity": total_equity,
+            "totalValue": total_value,
+            "dayPL": dayPL,
+            "dayPLPercent": dayPLPercent,
+            "totalPL": totalPL,
+            "totalPLPercent": totalPLPercent,
             "holdings": current_holdings,
-            "recentTransactions": transactions[:10]  # Last 10 transactions
+            "recentTransactions": recent_transactions
         }
-        
     except Exception as e:
-        print(f"Error in get_portfolio_history: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 @app.get("/api/protected")
