@@ -40,6 +40,7 @@ const Portfolio = () => {
     } catch (err) {
       console.error('Portfolio fetch error:', err);
       setError(err.message);
+      setPortfolio([]); // Ensure portfolio is set to an empty array on error
     } finally {
       setIsLoading(false);
     }
@@ -49,20 +50,28 @@ const Portfolio = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
-
+  
       const response = await fetch('http://localhost:5000/api/portfolio/history', {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       });
-
+  
       if (!response.ok) throw new Error('Failed to fetch transaction history');
-
+  
       const data = await response.json();
-      setTransactions(data.transactions);
+      console.log('Fetched transaction data:', data);
+  
+      if (data.recentTransactions && Array.isArray(data.recentTransactions)) {
+        setTransactions(data.recentTransactions); // Use the correct key here
+      } else {
+        console.warn('Invalid transactions data received:', data.recentTransactions);
+        setTransactions([]); // Fallback to empty array
+      }
     } catch (err) {
       console.error('Error fetching transactions:', err);
+      setTransactions([]); // Optionally reset to empty array on error
     }
   };
 
@@ -174,31 +183,39 @@ const Portfolio = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((tx, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-white/30">
-                      <td className="py-2 px-4 text-gray-700">
-                        {new Date(tx.timestamp).toLocaleDateString()}
-                      </td>
-                      <td className="py-2 px-4">
-                        <span className={`flex items-center ${
-                          tx.type === 'buy' ? 'text-green-600' : 'text-red-600'
-                        } font-medium`}>
-                          {tx.type === 'buy' ? (
-                            <ArrowUpCircle className="w-4 h-4 mr-1" />
-                          ) : (
-                            <ArrowDownCircle className="w-4 h-4 mr-1" />
-                          )}
-                          {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
-                        </span>
-                      </td>
-                      <td className="py-2 px-4 text-gray-700">{tx.symbol}</td>
-                      <td className="text-right py-2 px-4 text-gray-700">{tx.quantity}</td>
-                      <td className="text-right py-2 px-4 text-gray-700">${tx.price.toFixed(2)}</td>
-                      <td className="text-right py-2 px-4 font-medium text-gray-800">
-                        ${(tx.quantity * tx.price).toFixed(2)}
+                  {Array.isArray(transactions) && transactions.length > 0 ? (
+                    transactions.map((tx, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-white/30">
+                        <td className="py-2 px-4 text-gray-700">
+                          {new Date(tx.timestamp).toLocaleDateString()}
+                        </td>
+                        <td className="py-2 px-4">
+                          <span className={`flex items-center ${
+                            tx.type === 'buy' ? 'text-green-600' : 'text-red-600'
+                          } font-medium`}>
+                            {tx.type === 'buy' ? (
+                              <ArrowUpCircle className="w-4 h-4 mr-1" />
+                            ) : (
+                              <ArrowDownCircle className="w-4 h-4 mr-1" />
+                            )}
+                            {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                          </span>
+                        </td>
+                        <td className="py-2 px-4 text-gray-700">{tx.symbol}</td>
+                        <td className="text-right py-2 px-4 text-gray-700">{tx.quantity}</td>
+                        <td className="text-right py-2 px-4 text-gray-700">${tx.price.toFixed(2)}</td>
+                        <td className="text-right py-2 px-4 font-medium text-gray-800">
+                          ${(tx.quantity * tx.price).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="text-center py-4 text-gray-600">
+                        No transactions found
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>

@@ -103,13 +103,16 @@ async def register(user: User):
     # Hash the user's password
     hashed_password = pwd_context.hash(user.password)
     
-    # Insert the new user into the database with a default balance
+    # Insert the new user into the database with a default balance and empty holdings
     users_collection.insert_one({
         "email": user.email,
         "password": hashed_password,
-        "balance": 1000  # Initial balance
+        "balance": 1000,  # Initial balance
+        "holdings": {}     # Explicitly empty holdings
     })
-    return {"message": "User registered successfully with $1000 balance"}
+    
+    return {"message": "User registered successfully with $1000 balance and 0 stocks"}
+
 
 @app.post("/api/login", response_model=Token)
 async def login(user: User):
@@ -325,14 +328,61 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
 @app.get("/api/portfolio/history")
 async def get_portfolio_history(current_user: str = Depends(get_current_user)):
     try:
+        # Get user from database
+        user = users_collection.find_one({"email": current_user})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get user's transactions
         transactions = list(db["transactions"].find(
             {"user_email": current_user},
-            {'_id': 0}  # Exclude MongoDB _id
-        ))
-        return {"transactions": transactions}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            {"_id": 0}  # Exclude MongoDB _id field
+        ).sort("timestamp", -1))  # Sort by timestamp descending
+        
+        # Get current holdings and calculate total portfolio value
+        holdings = {}
+        for transaction in transactions:
+            symbol = transaction["symbol"]
+            quantity = transaction["quantity"]
+            if transaction["type"] == "buy":
+                holdings[symbol] = holdings.get(symbol, 0) + quantity
+            else:  # sell
+                holdings[symbol] = holdings.get(symbol, 0) - quantity
 
+        # Calculate current value of holdings
+        total_equity = 0
+        current_holdings = []
+        for symbol, quantity in holdings.items():
+            if quantity > 0:  # Only include positive positions
+                try:
+                    # Get current price using yfinance
+                    ticker = yf.Ticker(symbol)
+                    current_price = ticker.history(period='1d')['Close'].iloc[-1]
+                    
+                    position_value = quantity * current_price
+                    total_equity += position_value
+                    
+                    current_holdings.append({
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "currentPrice": current_price,
+                        "value": position_value
+                    })
+                except Exception as e:
+                    print(f"Error fetching price for {symbol}: {str(e)}")
+                    continue
+
+        return {
+            "cashBalance": user.get("balance", 0),
+            "equity": total_equity,
+            "totalValue": user.get("balance", 0) + total_equity,
+            "holdings": current_holdings,
+            "recentTransactions": transactions[:10]  # Last 10 transactions
+        }
+        
+    except Exception as e:
+        print(f"Error in get_portfolio_history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/protected")
