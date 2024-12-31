@@ -9,7 +9,7 @@ export default function ProtectedLayout({
   currentPage = "dashboard"
 }: {
   children: React.ReactNode;
-  currentPage?: "dashboard" | "trade";
+  currentPage?: "dashboard" | "trade" | "model-training";
 }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
@@ -94,8 +94,9 @@ export default function ProtectedLayout({
               </Link>
             </div>
 
-            {/* Navigation */}
+            {/* Navigation and User Info */}
             <div className="flex items-center gap-6">
+              {/* Navigation Links */}
               <div className="flex items-center gap-4">
                 <Link 
                   href="/dashboard"
@@ -117,21 +118,33 @@ export default function ProtectedLayout({
                 >
                   Trade
                 </Link>
+                <Link 
+                  href="/model-training"
+                  style={{ 
+                    backgroundColor: currentPage === "model-training" ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                    color: 'white'
+                  }}
+                  className="px-3 py-2 rounded-md text-sm font-medium hover:bg-white/10 transition-colors"
+                >
+                  AI Models
+                </Link>
               </div>
               
-              {userEmail && (
-                <span className="text-white text-sm hidden sm:block">
-                  {userEmail}
-                </span>
-              )}
-              
-              <button
-                onClick={handleLogout}
-                style={{ backgroundColor: '#FFAFCC' }}
-                className="text-white hover:bg-opacity-90 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                Logout
-              </button>
+              <div className="flex items-center gap-4">
+                {userEmail && (
+                  <span className="text-white text-sm hidden sm:block">
+                    {userEmail}
+                  </span>
+                )}
+                
+                <button
+                  onClick={handleLogout}
+                  style={{ backgroundColor: '#FFAFCC' }}
+                  className="text-white hover:bg-opacity-90 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </div>

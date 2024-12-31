@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
 import BuySell from './BuySell';
 
@@ -8,46 +8,25 @@ interface TradingModalProps {
   symbol: string;
   stockData: any[];
   initialAction?: 'buy' | 'sell';
+  maxSellQuantity?: number;
+  onTransactionComplete?: () => void;  // Add callback for transaction completion
 }
 
-const TradingModal: React.FC<TradingModalProps> = ({ 
+const TradingModal = ({ 
   isOpen, 
   onClose, 
   symbol, 
   stockData, 
-  initialAction = 'buy' 
-}) => {
-  const [ownedQuantity, setOwnedQuantity] = useState<number>(0);
-
-  useEffect(() => {
-    const fetchOwnedQuantity = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
-        const response = await fetch('http://localhost:5000/api/portfolio', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
-        });
-
-        if (!response.ok) throw new Error('Failed to fetch portfolio');
-
-        const data = await response.json();
-        const holding = data.portfolio.find(h => h.symbol === symbol);
-        setOwnedQuantity(holding ? holding.quantity : 0);
-      } catch (error) {
-        console.error('Error fetching owned quantity:', error);
-      }
-    };
-
-    if (isOpen && symbol) {
-      fetchOwnedQuantity();
-    }
-  }, [isOpen, symbol]);
-
+  initialAction = 'buy', 
+  maxSellQuantity,
+  onTransactionComplete 
+}: TradingModalProps) => {
   if (!isOpen) return null;
+
+  const handleTransactionComplete = () => {
+    onTransactionComplete?.();  // Call the callback if provided
+    onClose();  // Close the modal
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -69,7 +48,8 @@ const TradingModal: React.FC<TradingModalProps> = ({
             stockData={stockData} 
             symbol={symbol} 
             initialAction={initialAction}
-            maxSellQuantity={ownedQuantity}
+            maxSellQuantity={maxSellQuantity}
+            onTransactionComplete={handleTransactionComplete}  // Pass the callback
           />
         </div>
       </div>

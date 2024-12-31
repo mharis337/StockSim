@@ -139,7 +139,11 @@ const Portfolio = () => {
             </div>
         );
     }
-
+    const handleTransactionComplete = () => {
+        // Refresh the portfolio data
+        fetchPortfolio();
+        fetchTransactionHistory();
+      };
     return (
         <div className="space-y-6 p-6">
 
@@ -218,12 +222,13 @@ const Portfolio = () => {
 
       {/* Trading Modal */}
       <TradingModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        symbol={selectedStock.symbol}
-        stockData={selectedStock.data}
-        initialAction={selectedStock.action}
-      />
+      isOpen={isModalOpen}
+      onClose={() => setIsModalOpen(false)}
+      symbol={selectedStock.symbol}
+      stockData={selectedStock.data}
+      initialAction={selectedStock.action}
+      onTransactionComplete={handleTransactionComplete}
+    />
 
 
             <div className="bg-white/50 backdrop-blur-sm rounded-lg shadow-lg p-6">

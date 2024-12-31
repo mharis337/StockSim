@@ -1,19 +1,57 @@
+# Standard Library Imports
+import asyncio
+import json
+import os
+import shutil
 from datetime import datetime, timedelta, timezone
-from typing import Optional
-from fastapi import FastAPI, HTTPException, Depends, Request
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from typing import List, Optional
+
+# Third-Party Imports
+import numpy as np
+import pandas as pd
+import pytz
+import tensorflow as tf
+import yfinance as yf
+from bson import ObjectId
+from bson.errors import InvalidId
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel
 from pymongo import MongoClient
-import yfinance as yf
-import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sse_starlette.sse import EventSourceResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# FastAPI Imports
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    UploadFile
+)
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import pytz
-import os
-from dotenv import load_dotenv
+from fastapi.security import OAuth2PasswordBearer
+
+# Pydantic Imports
+from pydantic import BaseModel
+
+# TensorFlow Keras Imports
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.optimizers import Adam
+
+
+# Define base path for models
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models')
+
+# Create models directory if it doesn't exist
+if not os.path.exists(MODEL_PATH):
+    os.makedirs(MODEL_PATH, exist_ok=True)
+
 
 load_dotenv()
 
@@ -30,6 +68,10 @@ app.add_middleware(
     max_age=3600,
 )
 
+# Add OPTIONS endpoint for model training
+@app.options("/api/model/train")
+async def model_train_options():
+    return {"message": "OK"}
 # JWT Configuration
 SECRET_KEY = "your-secret-key"  # Change this to a secure secret key
 ALGORITHM = "HS256"
@@ -203,40 +245,52 @@ async def create_transaction(
     transaction: dict,
     current_user: str = Depends(get_current_user)
 ):
-    def round_money(amount: float) -> float:
-        return round(float(amount), 2)
+    from decimal import Decimal, ROUND_HALF_UP
+    
+    def decimal_round(amount: Decimal) -> Decimal:
+        """Converts amount to Decimal if it isn't already and rounds"""
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+        return amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
     try:
         user = users_collection.find_one({"email": current_user})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Get and validate basic transaction data
+        # Convert all monetary values to Decimal immediately
         quantity = int(transaction["quantity"])
-        price = round_money(transaction["price"])
+        price = decimal_round(Decimal(str(transaction["price"])))
         transaction_type = transaction["type"]
         
-        # Calculate total with proper rounding
-        total_cost = round_money(price * quantity)
-        current_balance = round_money(user.get("balance", 0))
+        # Calculate total with Decimal arithmetic - NO intermediate rounding
+        total_cost = Decimal(str(quantity)) * price
+        current_balance = Decimal(str(user.get("balance", 0)))
 
-        # Validate the transaction
+        # Only round at the final stage when updating balances/saving
         if transaction_type == "buy":
             if total_cost > current_balance:
                 raise HTTPException(status_code=400, detail="Insufficient funds")
-            new_balance = round_money(current_balance - total_cost)
+            new_balance = decimal_round(current_balance - total_cost)
         else:  # sell
             # Verify user has enough shares to sell
-            portfolio = list(db["transactions"].find({"user_email": current_user, "symbol": transaction["symbol"]}))
-            shares_owned = sum([
+            portfolio = list(db["transactions"].find({
+                "user_email": current_user, 
+                "symbol": transaction["symbol"]
+            }))
+            shares_owned = sum(
                 tx["quantity"] if tx["type"] == "buy" else -tx["quantity"]
                 for tx in portfolio
-            ])
+            )
             
             if quantity > shares_owned:
                 raise HTTPException(status_code=400, detail="Insufficient shares")
             
-            new_balance = round_money(current_balance + total_cost)
+            new_balance = decimal_round(current_balance + total_cost)
+
+        # Round everything when saving to database
+        total_cost = float(decimal_round(total_cost))
+        new_balance = float(decimal_round(new_balance))
 
         # Update user's balance
         users_collection.update_one(
@@ -244,12 +298,12 @@ async def create_transaction(
             {"$set": {"balance": new_balance}}
         )
 
-        # Record the transaction with exact decimal precision
+        # Record the transaction
         transaction_record = {
             "user_email": current_user,
             "symbol": transaction["symbol"],
             "quantity": quantity,
-            "price": price,
+            "price": float(price),
             "total": total_cost,
             "type": transaction_type,
             "timestamp": datetime.now(timezone.utc)
@@ -262,7 +316,7 @@ async def create_transaction(
             "transaction": {
                 "symbol": transaction["symbol"],
                 "quantity": quantity,
-                "price": price,
+                "price": float(price),
                 "total": total_cost,
                 "type": transaction_type
             }
@@ -273,14 +327,16 @@ async def create_transaction(
 
 @app.get("/api/portfolio")
 async def get_portfolio(current_user: str = Depends(get_current_user)):
+    from decimal import Decimal, ROUND_HALF_UP
+    
+    def decimal_round(amount: float) -> float:
+        return float(Decimal(str(amount)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+    
     try:
-        def to_decimal(value):
-            return round(float(value), 2)
-
         # Get all transactions for the user
         transactions = list(db["transactions"].find({"user_email": current_user}))
 
-        # Calculate holdings with precise decimal handling
+        # Calculate holdings using Decimal for precise arithmetic
         holdings = {}
         for tx in transactions:
             symbol = tx["symbol"]
@@ -295,9 +351,9 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
             elif tx_type.lower() == "sell":
                 holdings[symbol] -= quantity
 
-        # Prepare portfolio data with exact decimals
+        # Prepare portfolio data
         portfolio = []
-        total_equity = 0
+        total_equity = Decimal('0.00')
         
         for symbol, quantity in holdings.items():
             if quantity > 0:
@@ -306,9 +362,9 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
                     hist = ticker.history(period="1d")
                     
                     if not hist.empty:
-                        current_price = to_decimal(float(hist['Close'].iloc[-1]))
-                        market_value = to_decimal(current_price * quantity)
-                        total_equity = to_decimal(total_equity + market_value)
+                        current_price = decimal_round(float(hist['Close'].iloc[-1]))
+                        market_value = decimal_round(current_price * quantity)
+                        total_equity += Decimal(str(market_value))
                         
                         portfolio_item = {
                             "symbol": symbol,
@@ -321,7 +377,10 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
                     print(f"Error processing {symbol}: {str(e)}")
                     continue
 
-        return {"portfolio": portfolio, "total_equity": total_equity}
+        return {
+            "portfolio": portfolio,
+            "total_equity": float(total_equity.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -549,6 +608,404 @@ async def get_stock_data(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+### MODEL ASPECT ####
+
+async def get_stock_training_data(symbol: str, period: str = "2y"):
+    """Fetch and preprocess stock data for training"""
+    try:
+        # Fetch historical data
+        stock = yf.Ticker(symbol)
+        df = stock.history(period=period)
+        
+        if df.empty:
+            raise ValueError(f"No data available for {symbol}")
+        
+        # Calculate technical indicators
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        df['RSI'] = calculate_rsi(df['Close'])
+        df['MACD'] = calculate_macd(df['Close'])
+        
+        # Remove any NaN values
+        df = df.dropna()
+        
+        return df
+    except Exception as e:
+        raise ValueError(f"Error fetching data for {symbol}: {str(e)}")
+
+def prepare_sequences(data, sequence_length=60):
+    """Prepare sequences for LSTM training"""
+    scaler = MinMaxScaler()
+    scaled_data = scaler.fit_transform(data)
+    
+    X, y = [], []
+    for i in range(sequence_length, len(scaled_data)):
+        X.append(scaled_data[i-sequence_length:i])
+        y.append(scaled_data[i, 0])  # Predicting the closing price
+    
+    return np.array(X), np.array(y), scaler
+
+def calculate_rsi(prices, period=14):
+    """Calculate RSI technical indicator"""
+    delta = prices.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_macd(prices, fast=12, slow=26):
+    """Calculate MACD technical indicator"""
+    exp1 = prices.ewm(span=fast, adjust=False).mean()
+    exp2 = prices.ewm(span=slow, adjust=False).mean()
+    return exp1 - exp2
+
+@app.post("/api/model/train")
+async def train_model(
+    request: Request,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        body = await request.json()
+        symbol = body["symbol"]
+        config = body.get("config", {
+            "epochs": 50,
+            "batch_size": 32,
+            "sequence_length": 60,
+            "learning_rate": 0.001
+        })
+        
+        # Fetch and prepare data
+        df = await get_stock_training_data(symbol)
+        
+        # Prepare features
+        features = np.column_stack((
+            df['Close'],
+            df['Volume'],
+            df['MA5'],
+            df['MA20'],
+            df['RSI'],
+            df['MACD']
+        ))
+        
+        # Prepare sequences
+        X, y, scaler = prepare_sequences(features, config['sequence_length'])
+        
+        # Split data
+        train_size = int(len(X) * 0.8)
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
+        
+        # Build model
+        model = Sequential([
+            LSTM(64, input_shape=(config['sequence_length'], X.shape[2]), return_sequences=True),
+            Dropout(0.2),
+            LSTM(32),
+            Dropout(0.2),
+            Dense(1)
+        ])
+        
+        model.compile(
+            optimizer=Adam(learning_rate=config['learning_rate']),
+            loss='mse'
+        )
+        
+        # Save model metadata
+        model_id = f"{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        model_info = {
+            "id": model_id,
+            "user_email": current_user,
+            "symbol": symbol,
+            "created_at": datetime.now(),
+            "config": config,
+            "status": "training"
+        }
+        db["models"].insert_one(model_info)
+        
+        # Train model
+        history = model.fit(
+            X_train, y_train,
+            epochs=config['epochs'],
+            batch_size=config['batch_size'],
+            validation_data=(X_test, y_test),
+            verbose=0
+        )
+        
+        # Save model
+        model_path = os.path.join(MODEL_PATH, model_id)
+        model.save(model_path)
+        
+        # Calculate accuracy metrics
+        test_loss = model.evaluate(X_test, y_test, verbose=0)
+        predictions = model.predict(X_test)
+        predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
+        y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
+        accuracy = 1 - np.mean(np.abs((y_test_actual - predictions) / y_test_actual))
+        
+        # Update model info
+        db["models"].update_one(
+            {"id": model_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "accuracy": float(accuracy),
+                    "test_loss": float(test_loss)
+                }
+            }
+        )
+        
+        return {
+            "model_id": model_id,
+            "accuracy": float(accuracy),
+            "test_loss": float(test_loss)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/model/training-status/{model_id}")
+async def model_training_status(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    async def event_generator():
+        try:
+            model_info = db["models"].find_one({"id": model_id})
+            if not model_info:
+                yield json.dumps({"error": "Model not found"})
+                return
+                
+            while True:
+                model_info = db["models"].find_one({"id": model_id})
+                yield json.dumps({
+                    "status": model_info["status"],
+                    "accuracy": model_info.get("accuracy"),
+                    "test_loss": model_info.get("test_loss")
+                })
+                
+                if model_info["status"] == "completed":
+                    break
+                    
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            yield json.dumps({"error": str(e)})
+    
+    return EventSourceResponse(event_generator())
+
+
+@app.post("/api/model/predict")
+async def predict(
+    request: Request,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        body = await request.json()
+        model_id = body["model_id"]
+        symbol = body["symbol"]
+        
+        # Load model and make prediction
+        model_path = os.path.join(MODEL_PATH, model_id)
+        model = load_model(model_path)
+        
+        # Fetch recent data
+        df = await get_stock_training_data(symbol, period="60d")
+        
+        # Prepare features (same as training)
+        features = np.column_stack((
+            df['Close'],
+            df['Volume'],
+            df['MA5'],
+            df['MA20'],
+            df['RSI'],
+            df['MACD']
+        ))
+        
+        # Scale and prepare sequence
+        scaler = MinMaxScaler()
+        scaled_data = scaler.fit_transform(features)
+        sequence = scaled_data[-60:].reshape(1, 60, features.shape[1])
+        
+        # Make prediction
+        prediction = model.predict(sequence)
+        prediction = scaler.inverse_transform(prediction.reshape(-1, 1))
+        
+        return {
+            "symbol": symbol,
+            "prediction": float(prediction[0][0]),
+            "current_price": float(df['Close'].iloc[-1]),
+            "prediction_date": (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+@app.get("/api/models")
+async def get_models(current_user: str = Depends(get_current_user)):
+    try:
+        models = list(db["models"].find({"user_email": current_user}))
+        
+        # Process models to ensure IDs are properly formatted
+        for model in models:
+            # Convert ObjectId to string
+            model["_id"] = str(model["_id"])
+            # Ensure there's also an 'id' field
+            model["id"] = model["_id"]
+            
+        return {"models": models}
+    except Exception as e:
+        print(f"Error fetching models: {str(e)}")  # Debug log
+        raise HTTPException(status_code=500, detail=str(e))
+    
+# Update the model upload endpoint
+@app.post("/api/models/upload")
+async def upload_model(
+    model: UploadFile = File(...),
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        # Validate file extension
+        valid_extensions = ['.h5', '.keras', '.pkl', '.joblib']
+        file_extension = os.path.splitext(model.filename)[1].lower()
+        
+        if file_extension not in valid_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type. Supported formats: {', '.join(valid_extensions)}"
+            )
+
+        # Create unique filename
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        unique_filename = f"{current_user}_{timestamp}{file_extension}"
+        file_path = os.path.join(MODEL_PATH, unique_filename)
+
+        # Save the file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(model.file, buffer)
+
+        # Create model document
+        model_doc = {
+            "user_email": current_user,
+            "name": model.filename,
+            "path": file_path,
+            "uploadDate": datetime.now(timezone.utc),
+            "status": "inactive",
+            "features": ["price", "volume", "technical_indicators"],  # Default features
+        }
+
+        # Insert into database
+        result = db["models"].insert_one(model_doc)
+        model_doc["id"] = str(result.inserted_id)
+        del model_doc["_id"]
+
+        return {
+            "message": "Model uploaded successfully",
+            "model": model_doc
+        }
+
+    except Exception as e:
+        # Clean up file if it was created
+        if 'file_path' in locals() and os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/models/{model_id}/toggle")
+async def toggle_model(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    print(f"Attempting to toggle model with ID: {model_id}")  # Debug log
+    try:
+        if not model_id:
+            raise HTTPException(status_code=400, detail="Model ID is required")
+            
+        # Convert string ID to ObjectId
+        try:
+            object_id = ObjectId(model_id)
+        except InvalidId:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid model ID format: {model_id}"
+            )
+
+        # Find the model and verify ownership
+        model = db["models"].find_one({
+            "_id": object_id,
+            "user_email": current_user
+        })
+        
+        if not model:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Model not found with ID: {model_id}"
+            )
+
+        # Toggle the model status
+        current_status = model.get("status", "inactive")
+        new_status = "active" if current_status != "active" else "inactive"
+        
+        # Update this model's status
+        result = db["models"].update_one(
+            {"_id": object_id},
+            {"$set": {"status": new_status}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update model status"
+            )
+
+        return {
+            "status": new_status,
+            "model_id": str(object_id)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error toggling model: {str(e)}")  # Debug log
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Update the model deletion endpoint
+@app.delete("/api/models/{model_id}")
+async def delete_model(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        # Convert string ID to ObjectId
+        object_id = ObjectId(model_id)
+        
+        # Find the model
+        model = db["models"].find_one({
+            "_id": object_id,
+            "user_email": current_user
+        })
+        
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        # Delete the file if it exists
+        if os.path.exists(model["path"]):
+            os.remove(model["path"])
+
+        # Delete from database
+        db["models"].delete_one({"_id": object_id})
+
+        return {"message": "Model deleted successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,30 +2,40 @@ import React, { useState, useEffect } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface BuySellProps {
-  stockData: any[];
-  symbol: string;
-  initialAction?: 'buy' | 'sell';
-  maxSellQuantity?: number;
-}
+    stockData: any[];
+    symbol: string;
+    initialAction?: 'buy' | 'sell';
+    maxSellQuantity?: number;
+    onTransactionComplete?: () => void;
+  }
 
-const BuySell: React.FC<BuySellProps> = ({ 
-  stockData, 
-  symbol, 
-  initialAction = 'buy',
-  maxSellQuantity = 0 
-}) => {
-  const [quantity, setQuantity] = useState<number>(1);
-  const [orderType, setOrderType] = useState<'buy' | 'sell'>(initialAction);
-  const [userBalance, setUserBalance] = useState<number>(0);
-  const [ownedQuantity, setOwnedQuantity] = useState<number>(0);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isBalanceLoading, setIsBalanceLoading] = useState(true);
+// Helper function to ensure consistent money rounding
+const roundMoney = (value: number): number => {
+    // Convert to string to handle floating point precision
+    return Number(Math.round(Number(value + 'e2')) + 'e-2');
+  };
+  
+
+
+  const BuySell: React.FC<BuySellProps> = ({ 
+    stockData, 
+    symbol, 
+    initialAction = 'buy',
+    maxSellQuantity = 0,
+    onTransactionComplete 
+  }) => {
+    const [quantity, setQuantity] = useState<number>(1);
+    const [orderType, setOrderType] = useState<'buy' | 'sell'>(initialAction);
+    const [userBalance, setUserBalance] = useState<number>(0);
+    const [ownedQuantity, setOwnedQuantity] = useState<number>(0);
+    const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isBalanceLoading, setIsBalanceLoading] = useState(true);
 
   const currentPrice = stockData.length > 0 ? 
-    Math.round(stockData[stockData.length - 1].Close * 100) / 100 : 0;
+    roundMoney(stockData[stockData.length - 1].Close) : 0;
 
-  const totalCost = Math.round((currentPrice * quantity) * 100) / 100;
+  const totalCost = roundMoney(currentPrice * quantity);
 
   // Reset quantity and message when switching order types
   useEffect(() => {
@@ -33,7 +43,6 @@ const BuySell: React.FC<BuySellProps> = ({
     setMessage(null);
   }, [orderType]);
 
-  // Fetch user's balance and owned quantity
   useEffect(() => {
     const fetchUserData = async () => {
       try {
@@ -50,7 +59,7 @@ const BuySell: React.FC<BuySellProps> = ({
 
         if (!balanceResponse.ok) throw new Error('Failed to fetch balance');
         const balanceData = await balanceResponse.json();
-        setUserBalance(Math.round(balanceData.balance * 100) / 100);
+        setUserBalance(roundMoney(balanceData.balance));
 
         // Fetch portfolio to get owned quantity
         const portfolioResponse = await fetch('http://localhost:5000/api/portfolio', {
@@ -99,7 +108,8 @@ const BuySell: React.FC<BuySellProps> = ({
       return;
     }
 
-    if (orderType === 'buy' && totalCost > userBalance) {
+    const exactTotalCost = roundMoney(currentPrice * quantity);
+    if (orderType === 'buy' && exactTotalCost > userBalance) {
       setMessage({
         type: 'error',
         text: 'Insufficient funds for this transaction'
@@ -125,14 +135,13 @@ const BuySell: React.FC<BuySellProps> = ({
           symbol,
           quantity,
           type: orderType,
-          price: currentPrice
+          price: roundMoney(currentPrice)
         })
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        // Update UI after successful transaction
         setMessage({
           type: 'success',
           text: `Successfully ${orderType === 'buy' ? 'bought' : 'sold'} ${quantity} shares of ${symbol}`
@@ -148,11 +157,14 @@ const BuySell: React.FC<BuySellProps> = ({
         
         if (balanceResponse.ok) {
           const balanceData = await balanceResponse.json();
-          setUserBalance(Math.round(balanceData.balance * 100) / 100);
+          setUserBalance(roundMoney(balanceData.balance));
           setOwnedQuantity(prev => 
             orderType === 'buy' ? prev + quantity : prev - quantity
           );
         }
+
+        // Notify parent component that transaction is complete
+        onTransactionComplete?.();
       } else {
         throw new Error(data.detail || 'Transaction failed');
       }
