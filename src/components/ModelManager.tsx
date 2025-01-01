@@ -238,10 +238,42 @@ const ModelManager = () => {
     );
 
 
-    const handleAnalyzeClick = (model: Model, symbol: string) => {
-        setPendingAnalysis({ model, symbol });
-        setFeatureSelectorOpen(true);
-    };
+    const handleAnalyzeClick = async (model, symbol) => {
+        try {
+          setIsLoading(true);
+          setError(null);
+          
+          // First get model info
+          const token = localStorage.getItem('token');
+          const modelInfoResponse = await fetch(`http://localhost:5000/api/models/${model.id}/info`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (!modelInfoResponse.ok) {
+            throw new Error('Failed to fetch model information');
+          }
+          
+          const modelInfo = await modelInfoResponse.json();
+          
+          // Now open feature selector with model info
+          setPendingAnalysis({
+            model: {
+              ...model,
+              requiredFeatures: modelInfo.required_features,
+              recommendedFeatures: modelInfo.recommended_features
+            },
+            symbol
+          });
+          setFeatureSelectorOpen(true);
+          
+        } catch (err) {
+          setError('Failed to start analysis: ' + err.message);
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
     // New handler for when features are selected
     const REQUIRED_FEATURES = [
@@ -250,64 +282,82 @@ const ModelManager = () => {
     'ATR', 'MACD', 'PIVOT'
 ];
 
-const handleFeaturesSelected = async (selectedFeatures: string[]) => {
+const handleFeaturesSelected = async (selectedFeatures) => {
     if (!pendingAnalysis) return;
     
     const { model, symbol } = pendingAnalysis;
     setFeatureSelectorOpen(false);
     
     try {
-        setIsLoading(true);
-        setError(null);
-        
-        const token = localStorage.getItem('token');
-        
-        const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-                symbol,
-                features: selectedFeatures
-            })
+      setIsLoading(true);
+      setError(null);
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          symbol,
+          features: selectedFeatures
+        })
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Analysis failed');
+      }
+  
+      const data = await response.json();
+      
+      // Show which features were actually used
+      if (selectedFeatures.length !== data.features_used.length) {
+        setInfo({
+          type: 'warning',
+          message: 'Feature selection was adjusted',
+          details: [
+            `Selected: ${selectedFeatures.length} features`,
+            `Actually used: ${data.features_used.length} features`,
+            'Adjusted to match model requirements:'
+          ],
+          featureChanges: {
+            added: data.features_used.filter(f => !selectedFeatures.includes(f)),
+            removed: selectedFeatures.filter(f => !data.features_used.includes(f))
+          }
         });
-
-        if (!response.ok) {
-            throw new Error('Failed to analyze stock data');
-        }
-
-        const data = await response.json();
-        
-        // Update stock data with signals
-        const updatedStockData = stockData.map(record => {
-            const signal = data.signals.find(s => 
-                s.date === new Date(record.Date).toISOString().split('T')[0]
-            );
-            if (signal) {
-                return {
-                    ...record,
-                    buySignal: signal.signal === 'buy',
-                    sellSignal: signal.signal === 'sell',
-                    targetPrice: signal.target_price,
-                    stopLoss: signal.stop_loss,
-                    confidence: signal.confidence
-                };
-            }
-            return record;
+      }
+      
+      // Update charts and predictions
+      setStockData(prevData => {
+        return prevData.map(record => {
+          const signal = data.signals.find(s => 
+            s.date === new Date(record.Date).toISOString().split('T')[0]
+          );
+          if (signal) {
+            return {
+              ...record,
+              buySignal: signal.signal === 'buy',
+              sellSignal: signal.signal === 'sell',
+              targetPrice: signal.target_price,
+              stopLoss: signal.stop_loss,
+              confidence: signal.confidence
+            };
+          }
+          return record;
         });
-
-        setStockData(updatedStockData);
-        setPredictions(data.signals);
-        
+      });
+      
+      setPredictions(data.signals);
+      
     } catch (err) {
-        setError('Analysis failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setError(err.message);
     } finally {
-        setIsLoading(false);
-        setPendingAnalysis(null);
+      setIsLoading(false);
+      setPendingAnalysis(null);
     }
-};
+  };
 
 
     // Technical indicators grouping

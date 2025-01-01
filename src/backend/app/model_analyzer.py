@@ -6,13 +6,17 @@ import tensorflow as tf
 import logging
 import talib
 import pandas as pd
+from model_cache import model_cache
 
 logger = logging.getLogger(__name__)
 
 class ModelAnalyzer:
     def __init__(self, model_path):
-        self.model = tf.keras.models.load_model(model_path)
-        self.input_shape = self.model.input_shape
+        self.model = model_cache.get_model(model_path)
+        if not self.model:
+            raise ValueError(f"Failed to load model from {model_path}")
+        self.model_info = model_cache.get_model_info(model_path)
+        self.input_shape = self.model_info["input_shape"]
         self.scaler = MinMaxScaler()
         logger.info(f"Model loaded with input shape: {self.input_shape}")
 

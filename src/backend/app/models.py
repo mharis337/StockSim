@@ -15,8 +15,7 @@ import logging
 from pathlib import Path
 import yfinance as yf
 from model_analyzer import ModelAnalyzer
-
-
+from model_cache import ModelCacheManager, model_cache
 
 from config import SETTINGS
 from database import models_collection
@@ -239,7 +238,72 @@ async def analyze_stock(
 
 
 
+@router.get("/models/{model_id}/info")
+async def get_model_info(
+    model_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        # Get model info from database
+        model_info = models_collection.find_one({
+            "id": model_id,
+            "user_email": current_user
+        })
+        
+        if not model_info:
+            raise HTTPException(status_code=404, detail="Model not found")
 
+        model_path = model_info.get('path')
+        if not model_path or not os.path.exists(model_path):
+            raise HTTPException(status_code=400, detail="Model file not found")
+
+        # Load model to get input shape
+        model = tf.keras.models.load_model(model_path)
+        input_shape = model.input_shape
+
+        # Get required feature count from input shape
+        required_features = input_shape[-1] if len(input_shape) >= 3 else 1
+
+        # Define recommended features based on model type
+        # You can customize this based on your model's architecture
+        recommended_features = [
+            # Core price features
+            'Close', 'High', 'Low', 'Open', 'Volume',
+            
+            # Key technical indicators
+            'SMA_20', 'EMA_20', 'MACD', 'RSI',
+            'BB_Upper', 'BB_Middle', 'BB_Lower',
+            
+            # Volume indicators
+            'OBV', 'AD', 'MFI',
+            
+            # Trend indicators
+            'ADX', 'PLUS_DI', 'MINUS_DI',
+            
+            # Additional indicators
+            'ATR', 'STDDEV', 'ROC',
+            'STOCH_K', 'STOCH_D',
+            'Price_MA5_Ratio', 'Price_MA20_Ratio',
+            'BB_Position', 'Trend_Strength'
+        ]
+
+        return {
+            "id": model_id,
+            "name": model_info.get("name", "Unnamed Model"),
+            "input_shape": input_shape,
+            "required_features": required_features,
+            "recommended_features": recommended_features[:required_features],
+            "model_type": model_info.get("model_type", "LSTM"),
+            "features": model_info.get("features", []),
+            "status": model_info.get("status", "inactive"),
+            "created_at": model_info.get("uploadDate", datetime.now(timezone.utc))
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting model info: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/model/train")
