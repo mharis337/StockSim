@@ -19,13 +19,13 @@ const PortfolioSummary = () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) throw new Error('No authentication token found');
-  
+
         const response = await fetch('http://localhost:5000/api/portfolio/history', {
           headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
         });
-  
+
         if (!response.ok) throw new Error('Failed to fetch portfolio data');
-  
+
         const data = await response.json();
         setPortfolioData({
           totalBalance: data.totalValue,
@@ -37,20 +37,17 @@ const PortfolioSummary = () => {
           totalPLPercent: data.totalPLPercent
         });
       } catch (error) {
-        console.error('Error fetching portfolio data:', error);
         setError('Failed to load portfolio data');
       } finally {
         setIsLoading(false);
       }
     };
-  
+
     fetchPortfolioData();
     const intervalId = setInterval(fetchPortfolioData, 60000);
     return () => clearInterval(intervalId);
   }, []);
-  
 
-  // Format currency value with proper handling of invalid numbers
   const formatCurrency = (value) => {
     if (typeof value !== 'number' || isNaN(value)) {
       return '$0.00';
@@ -63,7 +60,6 @@ const PortfolioSummary = () => {
     });
   };
 
-  // Format percentage with proper handling of invalid numbers
   const formatPercentage = (value) => {
     if (typeof value !== 'number' || isNaN(value)) {
       return '0.00%';

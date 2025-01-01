@@ -57,7 +57,6 @@ const Watchlist = () => {
         changePercent
       };
     } catch (error) {
-      console.error(`Error fetching ${symbol}:`, error);
       setError(error instanceof Error ? error.message : `Failed to fetch data for ${symbol}`);
       return null;
     }
@@ -179,7 +178,7 @@ const Watchlist = () => {
               </div>
             </div>
           ))}
-          
+
           {stocks.length === 0 && !error && (
             <div className="text-center py-8 text-gray-500">
               No stocks in watchlist. Add some stocks to track them.

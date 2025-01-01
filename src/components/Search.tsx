@@ -18,14 +18,12 @@ const Search = () => {
 
   const fetchData = useCallback(async () => {
     if (!symbol) return;
-    
     try {
       setIsLoading(true);
       const token = localStorage.getItem("token");
       if (!token) {
         throw new Error("No authentication token found");
       }
-
       const response = await fetch(
         `http://localhost:5000/api/stock/${symbol}?interval=${interval}&timeframe=${timeframe}`,
         {
@@ -36,15 +34,12 @@ const Search = () => {
           }
         }
       );
-
       if (response.status === 401) {
         localStorage.removeItem("token");
         router.push("/login");
         return;
       }
-
       const result = await response.json();
-
       if (response.ok) {
         setStockData(result.data);
         setError(null);
@@ -53,10 +48,8 @@ const Search = () => {
         setStockData([]);
       }
     } catch (err) {
-      console.error("Failed to fetch data:", err);
       setError("Failed to fetch stock data");
       setStockData([]);
-      
       if (err instanceof Error && err.message === "No authentication token found") {
         router.push("/login");
       }
@@ -157,10 +150,7 @@ const Search = () => {
 
       {stockData.length > 0 && (
         <>
-          {/* Stock Info Panel */}
           <StockInfoPanel data={stockData} symbol={symbol} />
-
-          {/* Chart Section */}
           <div className="mt-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">Price Chart</h2>
@@ -173,7 +163,6 @@ const Search = () => {
             <StockChart data={stockData} interval={interval} />
           </div>
 
-          {/* Trading Section */}
           <div className="mt-8 border-t pt-8">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Trade {symbol}</h2>
             <BuySell stockData={stockData} symbol={symbol} />

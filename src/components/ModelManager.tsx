@@ -17,16 +17,15 @@ import * as d3 from 'd3';
 import SignalPanel from './SignalPanel';
 
 interface Model {
-    _id?: string;    // MongoDB ObjectId
-    id: string;      // String ID
+    _id?: string;
+    id: string;
     name: string;
     uploadDate: string;
     features?: string[];
     status: 'active' | 'inactive';
     targetSymbol?: string;
-    path?: string;   // File path
-  }
-
+    path?: string;
+}
 
 interface StockData {
     Date: string;
@@ -36,10 +35,10 @@ interface StockData {
     Low: number;
     Open: number;
     Volume: number;
-    [key: string]: any; // For technical indicators
+    [key: string]: any;
     buySignal?: boolean;
     sellSignal?: boolean;
-  }
+}
 
 interface Prediction {
     date: string;
@@ -47,79 +46,72 @@ interface Prediction {
     predicted_price: number;
     predicted_change: number;
     signal: 'buy' | 'sell' | 'hold';
-  }
+}
 
 const COLORS = [
-    '#4F46E5', // Indigo
-    '#EF4444', // Red
-    '#22C55E', // Green
-    '#F59E0B', // Amber
-    '#3B82F6', // Blue
-    '#8B5CF6', // Purple
-    '#EC4899', // Pink
-    '#F97316', // Orange
-    '#14B8A6', // Teal
-    '#6B7280', // Gray
-    // Add more colors as needed
+    '#4F46E5',
+    '#EF4444',
+    '#22C55E',
+    '#F59E0B',
+    '#3B82F6',
+    '#8B5CF6',
+    '#EC4899',
+    '#F97316',
+    '#14B8A6',
+    '#6B7280',
 ];
 
-
-
-
-
 const SignalIndicator = ({ signal }: { signal: string }) => {
-  const colors = {
-    buy: 'bg-green-100 text-green-800 border-green-200',
-    sell: 'bg-red-100 text-red-800 border-red-200',
-    hold: 'bg-yellow-100 text-yellow-800 border-yellow-200'
-  };
+    const colors = {
+        buy: 'bg-green-100 text-green-800 border-green-200',
+        sell: 'bg-red-100 text-red-800 border-red-200',
+        hold: 'bg-yellow-100 text-yellow-800 border-yellow-200'
+    };
 
-  return (
-    <div className={`px-3 py-1 rounded-full text-sm font-medium ${colors[signal]} border`}>
-      {signal.toUpperCase()}
-    </div>
-  );
+    return (
+        <div className={`px-3 py-1 rounded-full text-sm font-medium ${colors[signal]} border`}>
+            {signal.toUpperCase()}
+        </div>
+    );
 };
 
 const PredictionAnalysis = ({ predictions }: { predictions: Prediction[] }) => {
     if (!predictions || predictions.length === 0) return null;
-  
+
     const latestPrediction = predictions[predictions.length - 1];
-  
+
     return (
-      <div className="bg-white p-4 rounded-lg shadow space-y-4">
-        <h3 className="text-lg font-semibold">Latest Prediction</h3>
-        
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm text-gray-600">Current Price</div>
-            <div className="text-lg font-bold">${latestPrediction.price.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-600">Predicted Price</div>
-            <div className="text-lg font-bold">${latestPrediction.predicted_price.toFixed(2)}</div>
-          </div>
+        <div className="bg-white p-4 rounded-lg shadow space-y-4">
+            <h3 className="text-lg font-semibold">Latest Prediction</h3>
+            
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <div className="text-sm text-gray-600">Current Price</div>
+                    <div className="text-lg font-bold">${latestPrediction.price.toFixed(2)}</div>
+                </div>
+                <div>
+                    <div className="text-sm text-gray-600">Predicted Price</div>
+                    <div className="text-lg font-bold">${latestPrediction.predicted_price.toFixed(2)}</div>
+                </div>
+            </div>
+            
+            <div>
+                <div className="text-sm text-gray-600 mb-2">Predicted Change</div>
+                <div className={`text-lg font-bold ${
+                    latestPrediction.predicted_change > 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                    {latestPrediction.predicted_change > 0 ? '+' : ''}
+                    {latestPrediction.predicted_change.toFixed(2)}%
+                </div>
+            </div>
+            
+            <div>
+                <div className="text-sm text-gray-600 mb-2">Recommended Action</div>
+                <SignalIndicator signal={latestPrediction.signal} />
+            </div>
         </div>
-        
-        <div>
-          <div className="text-sm text-gray-600 mb-2">Predicted Change</div>
-          <div className={`text-lg font-bold ${
-            latestPrediction.predicted_change > 0 ? 'text-green-600' : 'text-red-600'
-          }`}>
-            {latestPrediction.predicted_change > 0 ? '+' : ''}
-            {latestPrediction.predicted_change.toFixed(2)}%
-          </div>
-        </div>
-        
-        <div>
-          <div className="text-sm text-gray-600 mb-2">Recommended Action</div>
-          <SignalIndicator signal={latestPrediction.signal} />
-        </div>
-      </div>
     );
-  };
-
-
+};
 
 const ModelManager = () => {
     const [models, setModels] = useState<Model[]>([]);
@@ -131,7 +123,6 @@ const ModelManager = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [xDomain, setXDomain] = useState<[number, number] | null>(null);
     const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({});
-    // New state for predictions
     const [predictions, setPredictions] = useState<Prediction[]>([]);
   
     const chartContainerRef = useRef<HTMLDivElement | null>(null);
@@ -141,7 +132,6 @@ const ModelManager = () => {
         symbol: string;
     } | null>(null);
 
-    // Function to fetch models
     const fetchModels = async () => {
         try {
             const token = localStorage.getItem('token');
@@ -163,7 +153,6 @@ const ModelManager = () => {
         fetchModels();
     }, []);
 
-    // Add the file upload section
     const renderUploadSection = () => (
         <div className="bg-white rounded-lg shadow p-6 mt-6">
             <h3 className="text-lg font-semibold mb-4">Upload Model</h3>
@@ -204,14 +193,12 @@ const ModelManager = () => {
                                             throw new Error('Failed to upload model');
                                         }
 
-                                        // Refresh models list
                                         fetchModels();
 
                                     } catch (err) {
                                         setError('Failed to upload model: ' + (err instanceof Error ? err.message : 'Unknown error'));
                                     } finally {
                                         setIsLoading(false);
-                                        // Clear the input
                                         e.target.value = '';
                                     }
                                 }
@@ -237,130 +224,122 @@ const ModelManager = () => {
         </div>
     );
 
-
     const handleAnalyzeClick = async (model, symbol) => {
         try {
-          setIsLoading(true);
-          setError(null);
-          
-          // First get model info
-          const token = localStorage.getItem('token');
-          const modelInfoResponse = await fetch(`http://localhost:5000/api/models/${model.id}/info`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
+            setIsLoading(true);
+            setError(null);
+            
+            const token = localStorage.getItem('token');
+            const modelInfoResponse = await fetch(`http://localhost:5000/api/models/${model.id}/info`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!modelInfoResponse.ok) {
+                throw new Error('Failed to fetch model information');
             }
-          });
-          
-          if (!modelInfoResponse.ok) {
-            throw new Error('Failed to fetch model information');
-          }
-          
-          const modelInfo = await modelInfoResponse.json();
-          
-          // Now open feature selector with model info
-          setPendingAnalysis({
-            model: {
-              ...model,
-              requiredFeatures: modelInfo.required_features,
-              recommendedFeatures: modelInfo.recommended_features
-            },
-            symbol
-          });
-          setFeatureSelectorOpen(true);
-          
+            
+            const modelInfo = await modelInfoResponse.json();
+            
+            setPendingAnalysis({
+                model: {
+                    ...model,
+                    requiredFeatures: modelInfo.required_features,
+                    recommendedFeatures: modelInfo.recommended_features
+                },
+                symbol
+            });
+            setFeatureSelectorOpen(true);
+            
         } catch (err) {
-          setError('Failed to start analysis: ' + err.message);
+            setError('Failed to start analysis: ' + err.message);
         } finally {
-          setIsLoading(false);
+            setIsLoading(false);
         }
-      };
+    };
 
-    // New handler for when features are selected
     const REQUIRED_FEATURES = [
-    'BB_Upper', 'STDDEV', 'SAR', 'BB_Middle', 'R1', 'BB_Lower', 
-    'OBV', 'S1', 'SMA_20', 'AD', 'MACD_Signal', 'EMA_20', 
-    'ATR', 'MACD', 'PIVOT'
-];
+        'BB_Upper', 'STDDEV', 'SAR', 'BB_Middle', 'R1', 'BB_Lower', 
+        'OBV', 'S1', 'SMA_20', 'AD', 'MACD_Signal', 'EMA_20', 
+        'ATR', 'MACD', 'PIVOT'
+    ];
 
-const handleFeaturesSelected = async (selectedFeatures) => {
-    if (!pendingAnalysis) return;
-    
-    const { model, symbol } = pendingAnalysis;
-    setFeatureSelectorOpen(false);
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          symbol,
-          features: selectedFeatures
-        })
-      });
-  
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Analysis failed');
-      }
-  
-      const data = await response.json();
-      
-      // Show which features were actually used
-      if (selectedFeatures.length !== data.features_used.length) {
-        setInfo({
-          type: 'warning',
-          message: 'Feature selection was adjusted',
-          details: [
-            `Selected: ${selectedFeatures.length} features`,
-            `Actually used: ${data.features_used.length} features`,
-            'Adjusted to match model requirements:'
-          ],
-          featureChanges: {
-            added: data.features_used.filter(f => !selectedFeatures.includes(f)),
-            removed: selectedFeatures.filter(f => !data.features_used.includes(f))
-          }
-        });
-      }
-      
-      // Update charts and predictions
-      setStockData(prevData => {
-        return prevData.map(record => {
-          const signal = data.signals.find(s => 
-            s.date === new Date(record.Date).toISOString().split('T')[0]
-          );
-          if (signal) {
-            return {
-              ...record,
-              buySignal: signal.signal === 'buy',
-              sellSignal: signal.signal === 'sell',
-              targetPrice: signal.target_price,
-              stopLoss: signal.stop_loss,
-              confidence: signal.confidence
-            };
-          }
-          return record;
-        });
-      });
-      
-      setPredictions(data.signals);
-      
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-      setPendingAnalysis(null);
-    }
-  };
+    const handleFeaturesSelected = async (selectedFeatures) => {
+        if (!pendingAnalysis) return;
+        
+        const { model, symbol } = pendingAnalysis;
+        setFeatureSelectorOpen(false);
+        
+        try {
+            setIsLoading(true);
+            setError(null);
+            
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    symbol,
+                    features: selectedFeatures
+                })
+            });
+        
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Analysis failed');
+            }
+        
+            const data = await response.json();
+            
+            if (selectedFeatures.length !== data.features_used.length) {
+                setInfo({
+                    type: 'warning',
+                    message: 'Feature selection was adjusted',
+                    details: [
+                        `Selected: ${selectedFeatures.length} features`,
+                        `Actually used: ${data.features_used.length} features`,
+                        'Adjusted to match model requirements:'
+                    ],
+                    featureChanges: {
+                        added: data.features_used.filter(f => !selectedFeatures.includes(f)),
+                        removed: selectedFeatures.filter(f => !data.features_used.includes(f))
+                    }
+                });
+            }
+            
+            setStockData(prevData => {
+                return prevData.map(record => {
+                    const signal = data.signals.find(s => 
+                        s.date === new Date(record.Date).toISOString().split('T')[0]
+                    );
+                    if (signal) {
+                        return {
+                            ...record,
+                            buySignal: signal.signal === 'buy',
+                            sellSignal: signal.signal === 'sell',
+                            targetPrice: signal.target_price,
+                            stopLoss: signal.stop_loss,
+                            confidence: signal.confidence
+                        };
+                    }
+                    return record;
+                });
+            });
+            
+            setPredictions(data.signals);
+            
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
+            setPendingAnalysis(null);
+        }
+    };
 
-
-    // Technical indicators grouping
     const indicatorGroups: { [key: string]: string[] } = {
         'Price': ['Close', 'High', 'Low', 'Open'],
         'Volume': ['Volume'],
@@ -374,12 +353,11 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         'Others': ['ICHIMOKU_CONV', 'PIVOT', 'R1', 'S1']
     };
 
-    // Fetch stock data with technical indicators
     const fetchStockData = useCallback(async (symbol: string) => {
         try {
             setIsLoading(true);
             setError(null);
-            setStockData([]); // Optional: Clear previous data
+            setStockData([]);
 
             const token = localStorage.getItem('token');
             if (!token) throw new Error('Authentication token not found');
@@ -396,28 +374,24 @@ const handleFeaturesSelected = async (selectedFeatures) => {
             if (!response.ok) throw new Error(`Failed to fetch stock data: ${response.statusText}`);
 
             const data = await response.json();
-            console.log('Raw API response:', data); // Debug log
 
             if (!data.data || !Array.isArray(data.data)) {
                 throw new Error('Invalid data format received from API');
             }
 
-            // Convert Date strings to timestamps
             const processedData: StockData[] = data.data.map((item: any) => ({
                 ...item,
-                timestamp: new Date(item.Date).getTime(), // Add timestamp field
+                timestamp: new Date(item.Date).getTime(),
             }));
 
             setStockData(processedData);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to fetch data');
-            console.error('Stock data fetch error:', err); // Debug log
         } finally {
             setIsLoading(false);
         }
     }, []);
 
-    // Initialize xDomain when stockData changes
     useEffect(() => {
         if (stockData.length > 0) {
             const timestamps = stockData.map(d => d.timestamp);
@@ -425,7 +399,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         }
     }, [stockData]);
 
-    // Handle Search Button Click
     const handleSearch = () => {
         const trimmedSymbol = searchSymbol.trim().toUpperCase();
         if (trimmedSymbol === '') {
@@ -435,7 +408,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         fetchStockData(trimmedSymbol);
     };
 
-    // Implement D3 Zoom Behavior
     useEffect(() => {
         if (!chartContainerRef.current || !xDomain) return;
 
@@ -444,12 +416,10 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         const height = 400;
         const margin = { top: 20, right: 60, bottom: 70, left: 60 };
 
-        // Define the initial scale
         const xScale = d3.scaleTime()
             .domain([new Date(xDomain[0]), new Date(xDomain[1])])
             .range([margin.left, width - margin.right]);
 
-        // Define the zoom behavior
         const zoom = d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([1, 20])
             .translateExtent([[margin.left, 0], [width - margin.right, height]])
@@ -460,7 +430,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                     newXScale.invert(margin.left).getTime(),
                     newXScale.invert(width - margin.right).getTime(),
                 ];
-                // Clamp the newDomain to the data's range
                 const dataMin = Math.min(...stockData.map(d => d.timestamp));
                 const dataMax = Math.max(...stockData.map(d => d.timestamp));
                 const clampedDomain: [number, number] = [
@@ -470,18 +439,13 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                 setXDomain(clampedDomain);
             });
 
-        // Apply the zoom behavior to the SVG
         svg.call(zoom as any);
 
-        // Cleanup on unmount
         return () => {
             svg.on(".zoom", null);
         };
     }, [xDomain, stockData]);
 
-    
-
-    // Side panel with stock details
     const renderSidePanel = () => {
         if (!stockData.length) return null;
 
@@ -544,7 +508,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         </div>
                     </div>
 
-                    {/* ML Model Signals */}
                     <div className="border-t pt-4">
                         <h4 className="font-medium mb-2">ML Signals</h4>
                         <div className="space-y-2">
@@ -565,7 +528,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         );
     };
 
-    // Indicator selector with dropdowns
     const renderIndicatorSelector = () => (
         <div className="mb-4 flex flex-wrap gap-4">
             {Object.entries(indicatorGroups).map(([group, indicators]) => (
@@ -581,7 +543,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         </svg>
                     </button>
 
-                    {/* Dropdown menu */}
                     {dropdownOpen[group] && (
                         <div id={`dropdown-${group}`} className="absolute z-10 bg-white divide-y divide-gray-100 rounded-lg shadow w-56 mt-2">
                             <ul className="py-2 text-sm text-gray-700" aria-labelledby="dropdownDefaultButton">
@@ -612,10 +573,8 @@ const handleFeaturesSelected = async (selectedFeatures) => {
         </div>
     );
 
-    // Assign colors to indicators
     const getColor = (index: number) => COLORS[index % COLORS.length];
 
-    // Render Chart
     const renderChart = () => {
         if (selectedIndicators.length === 0) {
             return (
@@ -625,12 +584,10 @@ const handleFeaturesSelected = async (selectedFeatures) => {
             );
         }
 
-        // Prepare data within the xDomain
         const filteredData = xDomain
             ? stockData.filter(d => d.timestamp >= xDomain[0] && d.timestamp <= xDomain[1])
             : stockData;
 
-        // Determine Y domains for shared Y-axis
         const yValues = selectedIndicators.flatMap(indicator =>
             filteredData.map(d => d[indicator as keyof StockData] as number).filter(v => v !== undefined)
         );
@@ -653,9 +610,8 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                                 const date = new Date(timestamp);
                                 return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
                             }}
-                            scale="linear" // Changed from "time" to "linear"
+                            scale="linear"
                         />
-                        {/* Explicitly set yAxisId="left" */}
                         <YAxis
                             yAxisId="left"
                             domain={yDomain}
@@ -671,7 +627,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         />
                         <Legend />
 
-                        {/* Render Lines for each selected indicator */}
                         {selectedIndicators.map((indicator, index) => (
                             <Line
                                 key={indicator}
@@ -679,13 +634,12 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                                 dataKey={indicator as keyof StockData}
                                 stroke={getColor(index)}
                                 dot={false}
-                                yAxisId="left" // Ensure yAxisId matches the YAxis
+                                yAxisId="left"
                                 connectNulls
                                 name={indicator.replace(/_/g, ' ')}
                             />
                         ))}
 
-                        {/* Special handling for indicators with multiple components */}
                         {selectedIndicators.includes('MACD') && (
                             <>
                                 <Line
@@ -693,7 +647,7 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                                     dataKey="MACD_Signal"
                                     stroke={getColor(selectedIndicators.indexOf('MACD') + 1)}
                                     dot={false}
-                                    yAxisId="left" // Ensure yAxisId matches the YAxis
+                                    yAxisId="left"
                                     name="MACD Signal"
                                 />
                                 <Line
@@ -701,19 +655,18 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                                     dataKey="MACD_Hist"
                                     stroke={getColor(selectedIndicators.indexOf('MACD') + 2)}
                                     dot={false}
-                                    yAxisId="left" // Ensure yAxisId matches the YAxis
+                                    yAxisId="left"
                                     name="MACD Histogram"
                                 />
                             </>
                         )}
 
-                        {/* Buy/Sell signals */}
                         <Scatter
                             name="Buy Signal"
                             data={filteredData.filter(d => d.buySignal)}
                             fill="#22C55E"
                             shape="triangle"
-                            yAxisId="left" // Ensure yAxisId matches the YAxis
+                            yAxisId="left"
                             line={{ stroke: '#22C55E' }}
                         />
                         <Scatter
@@ -721,7 +674,7 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                             data={filteredData.filter(d => d.sellSignal)}
                             fill="#EF4444"
                             shape="triangle"
-                            yAxisId="left" // Ensure yAxisId matches the YAxis
+                            yAxisId="left"
                             line={{ stroke: '#EF4444' }}
                         />
                     </LineChart>
@@ -733,7 +686,6 @@ const handleFeaturesSelected = async (selectedFeatures) => {
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
             <div className="max-w-7xl mx-auto space-y-6">
-                {/* Header */}
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                     <h2 className="text-2xl font-bold text-gray-800">AI Model Manager</h2>
                     <div className="flex items-center space-x-2 w-full md:w-auto">
@@ -753,8 +705,7 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         </button>
                     </div>
                 </div>
-    
-                {/* Feature Selector Modal */}
+
                 <FeatureSelector
                     isOpen={isFeatureSelectorOpen}
                     onClose={() => {
@@ -764,15 +715,14 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                     onFeaturesSelected={handleFeaturesSelected}
                     stockData={stockData}
                 />
-    
+
                 {error && (
                     <Alert variant="destructive">
                         <AlertCircle className="h-4 w-4" />
                         <AlertDescription>{error}</AlertDescription>
                     </Alert>
                 )}
-    
-                {/* Main Chart Content */}
+
                 <div className="bg-white rounded-lg shadow p-6">
                     <div className="flex gap-6">
                         <div className="flex-1">
@@ -792,15 +742,13 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         {renderSidePanel()}
                     </div>
                 </div>
-    
-                {/* Signal Analysis Panel */}
+
                 {predictions.length > 0 && (
                     <div className="mt-6">
                         <SignalPanel signal={predictions[predictions.length - 1]} />
                     </div>
                 )}
-    
-                {/* Models List */}
+
                 <div className="bg-white rounded-lg shadow p-6">
                     <h3 className="text-lg font-semibold mb-4">Available Models</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -852,11 +800,11 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                                                                 'Authorization': `Bearer ${token}`
                                                             }
                                                         });
-    
+
                                                         if (!response.ok) {
                                                             throw new Error('Failed to delete model');
                                                         }
-    
+
                                                         setModels(models.filter(m => m.id !== model.id));
                                                         if (selectedModel?.id === model.id) {
                                                             setSelectedModel(null);
@@ -877,13 +825,11 @@ const handleFeaturesSelected = async (selectedFeatures) => {
                         ))}
                     </div>
                 </div>
-    
-                {/* Upload Section */}
+
                 {renderUploadSection()}
             </div>
         </div>
     );
 };
-
 
 export default ModelManager;

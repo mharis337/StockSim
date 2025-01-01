@@ -1,4 +1,3 @@
-// app/page.tsx
 'use client';
 
 export default function Page() {
@@ -34,25 +33,6 @@ export default function Page() {
               }}
             />
           </div>
-          {/* Removed the buttons from the header */}
-          {/* <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-            <a href="/register" style={{ 
-              padding: '6px 16px', 
-              backgroundColor: 'white', 
-              color: '#CDB4DB', 
-              borderRadius: '6px', 
-              fontWeight: '600'
-            }}>
-              Get Started
-            </a>
-            <a href="/login" style={{ 
-              color: 'white',
-              textShadow: '1px 1px 2px rgba(0,0,0,0.1)',
-              fontWeight: '500'
-            }}>
-              Sign In
-            </a>
-          </div> */}
         </div>
       </div>
 

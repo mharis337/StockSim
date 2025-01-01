@@ -13,8 +13,8 @@ class ModelCacheManager:
         self._cache_timeout = timedelta(seconds=cache_timeout)
         self._model_info_cache: Dict[str, dict] = {}
 
+    # Get model from cache or load it
     def get_model(self, model_path: str) -> Optional[tf.keras.Model]:
-        """Get model from cache or load it"""
         now = datetime.now()
         
         # Check if model is in cache and not expired
@@ -34,8 +34,8 @@ class ModelCacheManager:
             logger.error(f"Error loading model {model_path}: {str(e)}")
             return None
 
+    # Get model info from cache or generate it
     def get_model_info(self, model_path: str) -> Optional[dict]:
-        """Get model info from cache or generate it"""
         if model_path in self._model_info_cache:
             logger.debug(f"Model info cache hit for: {model_path}")
             return self._model_info_cache[model_path]
@@ -45,7 +45,6 @@ class ModelCacheManager:
             logger.error(f"Model not found for path: {model_path}")
             return None
             
-        # Generate model info
         input_shape = model.input_shape
         required_features = input_shape[-1] if len(input_shape) >= 3 else 1
         
@@ -70,8 +69,8 @@ class ModelCacheManager:
         logger.debug(f"Model info cached for: {model_path}")
         return info
 
+    # Convert shape to list, handling both TensorShape and tuple.
     def _get_shape_as_list(self, shape: Union[tf.TensorShape, Tuple[int, ...]]) -> List[int]:
-        """Convert shape to list, handling both TensorShape and tuple."""
         if isinstance(shape, tf.TensorShape):
             return shape.as_list()
         elif isinstance(shape, tuple):
@@ -80,7 +79,6 @@ class ModelCacheManager:
             return "Unavailable"
 
     def _get_layer_input_shape(self, layer) -> Union[List[int], str]:
-        """Safely retrieve the input shape of a layer"""
         if hasattr(layer, 'input_shape') and layer.input_shape is not None:
             return self._get_shape_as_list(layer.input_shape)
         elif hasattr(layer, 'input') and hasattr(layer.input, 'shape') and layer.input.shape is not None:
@@ -90,7 +88,6 @@ class ModelCacheManager:
             return "Unavailable"
 
     def _get_layer_output_shape(self, layer) -> Union[List[int], str]:
-        """Safely retrieve the output shape of a layer"""
         if hasattr(layer, 'output_shape') and layer.output_shape is not None:
             return self._get_shape_as_list(layer.output_shape)
         elif hasattr(layer, 'output') and hasattr(layer.output, 'shape') and layer.output.shape is not None:
@@ -100,10 +97,8 @@ class ModelCacheManager:
             return "Unavailable"
     
     def clear_cache(self):
-        """Clear all cached models"""
         self._cache.clear()
         self._model_info_cache.clear()
         logger.info("Model cache cleared")
 
-# Global cache instance
 model_cache = ModelCacheManager()

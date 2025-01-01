@@ -32,7 +32,6 @@ export default function RegisterForm() {
       router.push("/login");
       
     } catch (err) {
-      console.error("Registration error:", err);
       setError(err instanceof Error ? err.message : "An error occurred during registration");
     } finally {
       setIsLoading(false);

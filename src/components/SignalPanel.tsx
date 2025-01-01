@@ -2,7 +2,6 @@ import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 
 const SignalPanel = ({ signal }) => {
-  // Add null check for signal
   if (!signal) {
     return null;
   }
@@ -13,7 +12,6 @@ const SignalPanel = ({ signal }) => {
   };
 
   const getSignalColor = (type) => {
-    // Add null check for type
     if (!type) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     
     switch (type.toLowerCase()) {

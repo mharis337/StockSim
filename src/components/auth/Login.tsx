@@ -17,7 +17,6 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      console.log('Starting login process...');
       const response = await fetch("http://localhost:5000/api/login", {
         method: "POST",
         headers: {
@@ -27,42 +26,31 @@ export default function Login() {
         body: JSON.stringify({ email, password }),
       });
 
-      console.log('Login response status:', response.status);
-      
       const data = await response.json();
-      console.log('Login response data:', data);
 
       if (!response.ok) {
         throw new Error(data.detail || "Login failed");
       }
 
       if (data.access_token) {
-        console.log('Storing token in localStorage');
         localStorage.setItem("token", data.access_token);
         localStorage.setItem("userEmail", email);
       }
 
-      console.log('Redirecting to dashboard...');
       router.push("/dashboard");
-      
     } catch (err) {
-      console.error("Login error:", err);
       setError("Failed to log in. Please check your credentials and try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // The rest of your component remains the same...
   return (
     <div className="flex h-screen">
-      {/* Left Side: Image */}
       <div
         className="w-1/2 bg-cover bg-center"
         style={{ backgroundImage: `url('/fin.jpg')` }}
       />
-
-      {/* Right Side: Login Form */}
       <div
         className="flex w-1/2 items-center justify-center"
         style={{

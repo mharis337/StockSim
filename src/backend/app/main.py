@@ -10,10 +10,8 @@ import auth
 import stock
 import models
 
-# Initialize FastAPI app
 app = FastAPI(title="Stock API with Auth", version="1.0.1")
 
-# Configure CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=SETTINGS.ALLOW_ORIGINS,

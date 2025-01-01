@@ -11,44 +11,39 @@ const Portfolio = () => {
     const [transactions, setTransactions] = useState([]);
     const [showTransactions, setShowTransactions] = useState(false);
     const [selectedStock, setSelectedStock] = useState({ 
-      symbol: '', 
-      data: [], 
-      action: 'buy',
-      maxSellQuantity: 0 
+        symbol: '', 
+        data: [], 
+        action: 'buy',
+        maxSellQuantity: 0 
     });
     const [isModalOpen, setIsModalOpen] = useState(false);
 
+    const fetchStockData = async (symbol) => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(
+                `http://localhost:5000/api/stock/${symbol}?interval=1d&timeframe=5d`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
 
-  // Function to fetch stock data for trading
-  const fetchStockData = async (symbol: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(
-        `http://localhost:5000/api/stock/${symbol}?interval=1d&timeframe=5d`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            if (!response.ok) throw new Error('Failed to fetch stock data');
+
+            const data = await response.json();
+            return data.data;
+        } catch {
+            return [];
         }
-      );
-      
-      if (!response.ok) throw new Error('Failed to fetch stock data');
-      
-      const data = await response.json();
-      return data.data;
-    } catch (error) {
-      console.error('Error fetching stock data:', error);
-      return [];
-    }
-  };
+    };
 
-  // Function to handle opening the trading modal
-  const handleTrade = async (symbol: string, action: 'buy' | 'sell') => {
-    const stockData = await fetchStockData(symbol);
-    setSelectedStock({ symbol, data: stockData, action });
-    setIsModalOpen(true);
-  };
-
+    const handleTrade = async (symbol, action) => {
+        const stockData = await fetchStockData(symbol);
+        setSelectedStock({ symbol, data: stockData, action });
+        setIsModalOpen(true);
+    };
 
     const fetchPortfolio = async () => {
         try {
@@ -78,9 +73,8 @@ const Portfolio = () => {
                 setPortfolio([]);
             }
         } catch (err) {
-            console.error('Portfolio fetch error:', err);
             setError(err.message);
-            setPortfolio([]); // Ensure portfolio is set to an empty array on error
+            setPortfolio([]);
         } finally {
             setIsLoading(false);
         }
@@ -101,17 +95,13 @@ const Portfolio = () => {
             if (!response.ok) throw new Error('Failed to fetch transaction history');
 
             const data = await response.json();
-            console.log('Fetched transaction data:', data);
-
             if (data.recentTransactions && Array.isArray(data.recentTransactions)) {
-                setTransactions(data.recentTransactions); // Use the correct key here
+                setTransactions(data.recentTransactions);
             } else {
-                console.warn('Invalid transactions data received:', data.recentTransactions);
-                setTransactions([]); // Fallback to empty array
+                setTransactions([]);
             }
-        } catch (err) {
-            console.error('Error fetching transactions:', err);
-            setTransactions([]); // Optionally reset to empty array on error
+        } catch {
+            setTransactions([]);
         }
     };
 
@@ -139,98 +129,14 @@ const Portfolio = () => {
             </div>
         );
     }
+
     const handleTransactionComplete = () => {
-        // Refresh the portfolio data
         fetchPortfolio();
         fetchTransactionHistory();
-      };
+    };
+
     return (
         <div className="space-y-6 p-6">
-
-
-<div className="bg-white/50 backdrop-blur-sm rounded-lg shadow-lg p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">Your Portfolio</h2>
-          <div className="text-right">
-            <div className="text-sm font-medium text-gray-700">Total Value</div>
-            <div className="text-2xl font-bold text-gray-800">
-              ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 text-gray-700">Symbol</th>
-                <th className="text-right py-3 px-4 text-gray-700">Shares</th>
-                <th className="text-right py-3 px-4 text-gray-700">Current Price</th>
-                <th className="text-right py-3 px-4 text-gray-700">Market Value</th>
-                <th className="text-center py-3 px-4 text-gray-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {portfolio.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-4 text-gray-600">
-                    No holdings found in your portfolio
-                  </td>
-                </tr>
-              ) : (
-                portfolio.map((holding) => (
-                  <tr key={holding.symbol} className="border-b border-gray-200 hover:bg-white/30">
-                    <td className="py-3 px-4 font-medium text-gray-800">{holding.symbol}</td>
-                    <td className="text-right py-3 px-4 text-gray-700">{holding.quantity}</td>
-                    <td className="text-right py-3 px-4 text-gray-700">
-                      {holding.price_unavailable ? (
-                        <span className="text-gray-500">Updating...</span>
-                      ) : (
-                        `$${holding.current_price.toFixed(2)}`
-                      )}
-                    </td>
-                    <td className="text-right py-3 px-4 font-medium text-gray-800">
-                      {holding.price_unavailable ? (
-                        <span className="text-gray-500">Updating...</span>
-                      ) : (
-                        `$${holding.market_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex justify-center gap-2">
-                        <button
-                          onClick={() => handleTrade(holding.symbol, 'buy')}
-                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                        >
-                          Buy
-                        </button>
-                        <button
-                          onClick={() => handleTrade(holding.symbol, 'sell')}
-                          className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                        >
-                          Sell
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Trading Modal */}
-      <TradingModal
-      isOpen={isModalOpen}
-      onClose={() => setIsModalOpen(false)}
-      symbol={selectedStock.symbol}
-      stockData={selectedStock.data}
-      initialAction={selectedStock.action}
-      onTransactionComplete={handleTransactionComplete}
-    />
-
-
             <div className="bg-white/50 backdrop-blur-sm rounded-lg shadow-lg p-6">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-gray-800">Your Portfolio</h2>
@@ -250,12 +156,13 @@ const Portfolio = () => {
                                 <th className="text-right py-3 px-4 text-gray-700">Shares</th>
                                 <th className="text-right py-3 px-4 text-gray-700">Current Price</th>
                                 <th className="text-right py-3 px-4 text-gray-700">Market Value</th>
+                                <th className="text-center py-3 px-4 text-gray-700">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {portfolio.length === 0 ? (
                                 <tr>
-                                    <td colSpan={4} className="text-center py-4 text-gray-600">
+                                    <td colSpan={5} className="text-center py-4 text-gray-600">
                                         No holdings found in your portfolio
                                     </td>
                                 </tr>
@@ -278,6 +185,22 @@ const Portfolio = () => {
                                                 `$${holding.market_value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
                                             )}
                                         </td>
+                                        <td className="py-3 px-4">
+                                            <div className="flex justify-center gap-2">
+                                                <button
+                                                    onClick={() => handleTrade(holding.symbol, 'buy')}
+                                                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                                >
+                                                    Buy
+                                                </button>
+                                                <button
+                                                    onClick={() => handleTrade(holding.symbol, 'sell')}
+                                                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                                >
+                                                    Sell
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))
                             )}
@@ -285,6 +208,15 @@ const Portfolio = () => {
                     </table>
                 </div>
             </div>
+
+            <TradingModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                symbol={selectedStock.symbol}
+                stockData={selectedStock.data}
+                initialAction={selectedStock.action}
+                onTransactionComplete={handleTransactionComplete}
+            />
 
             <div className="bg-white/50 backdrop-blur-sm rounded-lg shadow-lg">
                 <div

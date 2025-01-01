@@ -7,13 +7,13 @@ const FeatureSelector = ({
   onClose, 
   onFeaturesSelected, 
   stockData, 
-  modelInfo,  // New prop for model information
-  previousFeatures = [] // New prop for previously used features
+  modelInfo, 
+  previousFeatures = []
 }) => {
   const [selectedFeatures, setSelectedFeatures] = useState(new Set(previousFeatures));
   const [modelRequirements, setModelRequirements] = useState({
-    requiredFeatures: 32, // Default value
-    recommendedFeatures: [] // Features that work well with this model
+    requiredFeatures: 32,
+    recommendedFeatures: []
   });
   const [validationStatus, setValidationStatus] = useState({
     isValid: true,
@@ -21,7 +21,6 @@ const FeatureSelector = ({
     details: []
   });
 
-  // Feature groups with tooltips explaining their use
   const FEATURE_GROUPS = {
     'Price': {
       features: ['Close', 'High', 'Low', 'Open'],
@@ -65,7 +64,6 @@ const FeatureSelector = ({
     }
   };
 
-  // Validate selected features against model requirements
   const validateFeatures = () => {
     const count = selectedFeatures.size;
     const required = modelRequirements.requiredFeatures;
@@ -125,7 +123,6 @@ const FeatureSelector = ({
         </div>
 
         <div className="p-6">
-          {/* Feature Selection Status */}
           {validationStatus.message && (
             <Alert 
               variant={validationStatus.isValid ? "default" : "destructive"}
@@ -145,7 +142,6 @@ const FeatureSelector = ({
             </Alert>
           )}
 
-          {/* Feature Groups */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {Object.entries(FEATURE_GROUPS).map(([group, { features, description }]) => (
               <div key={group} className="border rounded-lg p-4">
@@ -185,7 +181,6 @@ const FeatureSelector = ({
             ))}
           </div>
 
-          {/* Action Buttons */}
           <div className="mt-6 flex justify-end space-x-4">
             <button
               onClick={onClose}

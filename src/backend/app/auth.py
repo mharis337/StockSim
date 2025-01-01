@@ -1,5 +1,3 @@
-# auth.py
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
@@ -17,10 +15,8 @@ router = APIRouter(
     tags=["Authentication"]
 )
 
-# Logger setup
 logger = logging.getLogger(__name__)
 
-# Pydantic models
 class User(BaseModel):
     email: str
     password: str
@@ -29,11 +25,10 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
 
-# Utility functions
+# Creates a JWT access token with an optional expiration time
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
     if expires_delta:
@@ -44,6 +39,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     encoded_jwt = jwt.encode(to_encode, SETTINGS.SECRET_KEY, algorithm=SETTINGS.ALGORITHM)
     return encoded_jwt
 
+# Retrieves the current user based on the provided JWT token
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SETTINGS.SECRET_KEY, algorithms=[SETTINGS.ALGORITHM])
@@ -56,7 +52,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except Exception:
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-# Routes
 @router.post("/register")
 async def register(user: User):
     if users_collection.find_one({"email": user.email}):
@@ -67,7 +62,7 @@ async def register(user: User):
     users_collection.insert_one({
         "email": user.email,
         "password": hashed_password,
-        "balance": 1000.0,  # Initial balance
+        "balance": 1000.0,
         "holdings": {}
     })
     
@@ -97,7 +92,7 @@ async def login(user: User):
             key="auth_token",
             value=access_token,
             httponly=True,
-            secure=False,  # Set to True in production with HTTPS
+            secure=False,
             samesite="lax",
             max_age=SETTINGS.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
@@ -117,6 +112,7 @@ async def logout():
     response.delete_cookie("auth_token")
     return response
 
+# Refreshes the JWT access token for the current authenticated user
 @router.post("/refresh")
 async def refresh_token(current_user: str = Depends(get_current_user)):
     try:
@@ -136,7 +132,7 @@ async def refresh_token(current_user: str = Depends(get_current_user)):
             key="auth_token",
             value=access_token,
             httponly=True,
-            secure=False,  # Set to True in production with HTTPS
+            secure=False,
             samesite="lax",
             max_age=SETTINGS.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
@@ -148,6 +144,7 @@ async def refresh_token(current_user: str = Depends(get_current_user)):
             status_code=500,
             detail="Could not refresh token"
         )
+
 @router.get("/protected")
 async def protected_route(current_user: str = Depends(get_current_user)):
     """

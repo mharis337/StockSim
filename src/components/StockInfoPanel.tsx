@@ -19,7 +19,6 @@ const StockInfoPanel = ({ data, symbol }: StockInfoPanelProps) => {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-6 bg-white rounded-lg border border-gray-200 shadow-sm">
-      {/* Symbol and Current Price */}
       <div className="flex flex-col">
         <div className="text-2xl font-bold text-gray-800 mb-1">{symbol}</div>
         <div className="text-3xl font-bold text-gray-900">${currentData.Close.toFixed(2)}</div>
@@ -28,7 +27,6 @@ const StockInfoPanel = ({ data, symbol }: StockInfoPanelProps) => {
         </div>
       </div>
 
-      {/* Day Range */}
       <div className="flex flex-col justify-center">
         <div className="text-base font-semibold text-gray-800 mb-2">Day Range</div>
         <div className="flex items-center space-x-2">
@@ -45,7 +43,6 @@ const StockInfoPanel = ({ data, symbol }: StockInfoPanelProps) => {
         </div>
       </div>
 
-      {/* Trading Info */}
       <div className="flex flex-col space-y-3">
         <div>
           <div className="text-base font-semibold text-gray-800 mb-1">Open</div>
@@ -57,7 +54,6 @@ const StockInfoPanel = ({ data, symbol }: StockInfoPanelProps) => {
         </div>
       </div>
 
-      {/* Volume */}
       <div className="flex flex-col space-y-3">
         <div>
           <div className="text-base font-semibold text-gray-800 mb-1">Volume</div>

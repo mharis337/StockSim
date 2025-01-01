@@ -42,7 +42,6 @@ export default function ProtectedLayout({
 
       setIsLoading(false);
     } catch (error) {
-      console.error("Auth verification failed:", error);
       localStorage.removeItem("token");
       localStorage.removeItem("userEmail");
       document.cookie = "auth_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
@@ -60,8 +59,6 @@ export default function ProtectedLayout({
         method: "POST",
         credentials: "include",
       });
-    } catch (err) {
-      console.error("Logout error:", err);
     } finally {
       localStorage.removeItem("token");
       localStorage.removeItem("userEmail");
@@ -86,17 +83,13 @@ export default function ProtectedLayout({
       <nav style={{ backgroundColor: '#CDB4DB' }} className="shadow-md">
         <div className="px-4">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
             <div className="flex items-center">
               <Link href="/dashboard" className="flex items-center gap-2">
                 <img src="/logo.png" alt="StockSim Logo" className="h-8 w-auto" />
                 <span className="text-xl font-bold text-white">StockSim</span>
               </Link>
             </div>
-
-            {/* Navigation and User Info */}
             <div className="flex items-center gap-6">
-              {/* Navigation Links */}
               <div className="flex items-center gap-4">
                 <Link 
                   href="/dashboard"
@@ -129,14 +122,12 @@ export default function ProtectedLayout({
                   AI Models
                 </Link>
               </div>
-              
               <div className="flex items-center gap-4">
                 {userEmail && (
                   <span className="text-white text-sm hidden sm:block">
                     {userEmail}
                   </span>
                 )}
-                
                 <button
                   onClick={handleLogout}
                   style={{ backgroundColor: '#FFAFCC' }}
@@ -149,7 +140,6 @@ export default function ProtectedLayout({
           </div>
         </div>
       </nav>
-
       <div className="flex-1">
         {children}
       </div>

@@ -23,7 +23,6 @@ const ModelTraining = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [selectedModel, setSelectedModel] = useState(null);
 
-  // Fetch saved models on component mount
   useEffect(() => {
     fetchSavedModels();
   }, []);
@@ -76,7 +75,6 @@ const ModelTraining = () => {
       if (!response.ok) throw new Error('Training failed');
       const data = await response.json();
       
-      // Start monitoring training status
       monitorTraining(data.model_id);
     } catch (err) {
       setError(err.message);
@@ -149,7 +147,6 @@ const ModelTraining = () => {
           </button>
         </div>
 
-        {/* Model Configuration Panel */}
         {showConfig && (
           <div className="mb-6 p-4 bg-white rounded-lg border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Model Configuration</h3>
@@ -191,7 +188,6 @@ const ModelTraining = () => {
           </div>
         )}
 
-        {/* Symbol Input and Training Controls */}
         <div className="mb-6">
           <div className="flex gap-4">
             <input
@@ -225,7 +221,6 @@ const ModelTraining = () => {
           </div>
         </div>
 
-        {/* Training Progress */}
         {trainingStatus.isTraining && (
           <div className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
             <div className="flex items-center justify-between mb-4">
@@ -235,14 +230,12 @@ const ModelTraining = () => {
               </div>
             </div>
 
-            {/* Progress updates will be shown here */}
             <div className="text-sm text-gray-600">
               Model is being trained on historical data for {symbol}...
             </div>
           </div>
         )}
 
-        {/* Error Display */}
         {error && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
@@ -250,7 +243,6 @@ const ModelTraining = () => {
           </Alert>
         )}
 
-        {/* Saved Models */}
         <div className="mt-8">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">Saved Models</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -298,7 +290,6 @@ const ModelTraining = () => {
           </div>
         </div>
 
-        {/* Prediction Results */}
         {prediction && (
           <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
             <h4 className="text-lg font-semibold text-green-800 mb-2">Prediction Results</h4>

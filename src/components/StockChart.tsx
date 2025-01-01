@@ -30,7 +30,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
 
     svg.selectAll("*").remove();
 
-    // Create tooltip
     let tooltip = d3.select("body").select(".stock-tooltip");
     if (tooltip.empty()) {
       tooltip = d3.select("body")
@@ -50,7 +49,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
         .style("box-shadow", "0 4px 6px -1px rgba(0, 0, 0, 0.1)");
     }
 
-    // Process data
     const filteredData = data.filter((d) => {
       const date = new Date(d.Date);
       const hours = date.getHours();
@@ -80,7 +78,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
       };
     });
 
-    // Set up scales
     const xDomain = d3.extent(mappedData, (d) => d.ContinuousTime) as [number, number];
     const yDomain = [
       d3.min(mappedData, (d) => Math.min(d.Low, d.Close)) ?? 0,
@@ -98,7 +95,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
       .nice()
       .range([height - margin.bottom, margin.top]);
 
-    // Create clip path
     svg.append("defs")
       .append("clipPath")
       .attr("id", "clip")
@@ -108,14 +104,12 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
       .attr("width", width - margin.left - margin.right)
       .attr("height", height - margin.top - margin.bottom);
 
-    // Create chart content group
     const chartContent = svg.append("g")
       .attr("clip-path", "url(#clip)");
 
     const formatTime = d3.timeFormat("%b %d, %Y %H:%M");
 
     function updateChart(xScale: d3.ScaleLinear<number, number>) {
-      // Update x-axis
       svg.select(".x-axis")
         .call(d3.axisBottom(xScale)
           .ticks(10)
@@ -146,7 +140,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
           .x((d) => xScale(d.ContinuousTime!))
           .y((d) => yScale(d.Close));
 
-        // Add the line
         chartContent
           .append("path")
           .datum(mappedData)
@@ -155,7 +148,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
           .attr("stroke-width", 2)
           .attr("d", line);
 
-        // Add hover line and point
         const hoverLine = chartContent
           .append("line")
           .style("opacity", "0")
@@ -171,7 +163,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
           .attr("stroke", "white")
           .attr("stroke-width", 2);
 
-        // Add hover overlay
         chartContent
           .append("rect")
           .attr("class", "overlay")
@@ -224,7 +215,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
             tooltip.style("opacity", 0);
           });
 
-        // Add current price dot
         const lastPoint = mappedData[mappedData.length - 1];
         chartContent
           .append("circle")
@@ -235,7 +225,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
           .attr("stroke", "white")
           .attr("stroke-width", 2);
 
-        // Add current price label
         chartContent
           .append("text")
           .attr("x", xScale(lastPoint.ContinuousTime!) + 8)
@@ -298,12 +287,10 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
       }
     }
 
-    // Add x-axis
     svg.append("g")
       .attr("class", "x-axis")
       .attr("transform", `translate(0,${height - margin.bottom})`);
 
-    // Add y-axis
     svg.append("g")
       .attr("class", "y-axis")
       .attr("transform", `translate(${margin.left},0)`)
@@ -314,7 +301,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
       .style("font-weight", "500")
       .style("fill", "#4B5563");
 
-    // Add zoom behavior
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([1, 20])
       .extent([[margin.left, margin.top], [width - margin.right, height - margin.bottom]])
@@ -326,7 +312,6 @@ const StockChart: React.FC<StockChartProps> = ({ data, interval }) => {
 
     svg.call(zoom as any);
 
-    // Initial render
     updateChart(xScaleBase);
 
   }, [data, chartType, interval]);

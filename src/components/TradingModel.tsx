@@ -9,7 +9,7 @@ interface TradingModalProps {
   stockData: any[];
   initialAction?: 'buy' | 'sell';
   maxSellQuantity?: number;
-  onTransactionComplete?: () => void;  // Add callback for transaction completion
+  onTransactionComplete?: () => void;
 }
 
 const TradingModal = ({ 
@@ -24,8 +24,8 @@ const TradingModal = ({
   if (!isOpen) return null;
 
   const handleTransactionComplete = () => {
-    onTransactionComplete?.();  // Call the callback if provided
-    onClose();  // Close the modal
+    onTransactionComplete?.();
+    onClose();
   };
 
   return (
@@ -49,7 +49,7 @@ const TradingModal = ({
             symbol={symbol} 
             initialAction={initialAction}
             maxSellQuantity={maxSellQuantity}
-            onTransactionComplete={handleTransactionComplete}  // Pass the callback
+            onTransactionComplete={handleTransactionComplete}
           />
         </div>
       </div>

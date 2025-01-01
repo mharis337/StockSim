@@ -1,5 +1,3 @@
-# Update in config.py
-
 import os
 from dotenv import load_dotenv
 from pydantic import BaseSettings
@@ -22,7 +20,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
 
-# Instantiate settings
 SETTINGS = Settings()
 
 # Ensure the models directory exists
