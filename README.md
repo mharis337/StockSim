@@ -38,9 +38,6 @@ StockSim is a stock trading simulation platform designed to help users practice 
 - **Machine Learning**:
   - TensorFlow/Keras
   - Scikit-learn
-- **Others**:
-  - Vercel (Hosting)
-  - Docker (Optional for development)
 
 ---
 
