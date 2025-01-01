@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from bson import ObjectId
 from bson.errors import InvalidId
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import shutil
 import json
@@ -12,15 +12,23 @@ import asyncio
 import numpy as np
 import pandas as pd
 import logging
+from pathlib import Path
+import yfinance as yf
+from model_analyzer import ModelAnalyzer
+
+
 
 from config import SETTINGS
 from database import models_collection
 from auth import get_current_user
 
+import tensorflow as tf
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import LSTM, Dense, Dropout,TFSMLayer
 from tensorflow.keras.optimizers import Adam
 from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import load_model
+import talib
 
 router = APIRouter(
     prefix="/api",
@@ -28,29 +36,75 @@ router = APIRouter(
 )
 
 # Logger setup
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+
+# Ensure models directory exists
+if not os.path.exists(SETTINGS.MODEL_DIR):
+    os.makedirs(SETTINGS.MODEL_DIR, exist_ok=True)
+    logger.info(f"Created models directory at: {SETTINGS.MODEL_DIR}")
+else:
+    logger.info(f"Using existing models directory at: {SETTINGS.MODEL_DIR}")
+
+
+
+
 # Utility Functions
-async def get_stock_training_data(symbol: str, period: str = "2y"):
+async def get_stock_training_data(symbol: str, period: str = "1y"):
     """Fetch and preprocess stock data for training"""
     try:
-        stock = yf.Ticker(symbol)
-        df = stock.history(period=period)
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period=period)
         
         if df.empty:
             raise ValueError(f"No data available for {symbol}")
         
+        # Convert columns to double precision
+        df = df.astype('float64')
+        
         # Calculate technical indicators
-        df['MA5'] = df['Close'].rolling(window=5).mean()
-        df['MA20'] = df['Close'].rolling(window=20).mean()
-        df['RSI'] = calculate_rsi(df['Close'])
-        df['MACD'] = calculate_macd(df['Close'])
+        close = df['Close'].values
+        high = df['High'].values
+        low = df['Low'].values
+        volume = df['Volume'].values
+        
+        # Price based indicators
+        try:
+            df['MA5'] = talib.SMA(close, timeperiod=5)
+            df['MA20'] = talib.SMA(close, timeperiod=20)
+            df['EMA20'] = talib.EMA(close, timeperiod=20)
+            
+            # Momentum indicators
+            df['RSI'] = talib.RSI(close)
+            df['ROC'] = talib.ROC(close, timeperiod=10)
+            
+            # Volatility indicators
+            df['ATR'] = talib.ATR(high, low, close)
+            df['BBANDS_U'], df['BBANDS_M'], df['BBANDS_L'] = talib.BBANDS(close)
+            
+            # Volume indicators
+            df['OBV'] = talib.OBV(close, volume)
+            df['AD'] = talib.AD(high, low, close, volume)
+            df['MFI'] = talib.MFI(high, low, close, volume, timeperiod=14)
+            
+            # Trend indicators
+            df['ADX'] = talib.ADX(high, low, close)
+            df['PLUS_DI'] = talib.PLUS_DI(high, low, close)
+            df['MINUS_DI'] = talib.MINUS_DI(high, low, close)
+            df['MACD'], df['MACD_SIGNAL'], _ = talib.MACD(close)
+            
+        except Exception as e:
+            logger.error(f"Error calculating indicators: {str(e)}")
+            raise ValueError(f"Error calculating indicators: {str(e)}")
         
         # Remove any NaN values
         df = df.dropna()
         
         return df
+        
     except Exception as e:
+        logger.error(f"Error fetching data for {symbol}: {str(e)}")
         raise ValueError(f"Error fetching data for {symbol}: {str(e)}")
 
 def prepare_sequences(data, sequence_length=60):
@@ -65,19 +119,6 @@ def prepare_sequences(data, sequence_length=60):
     
     return np.array(X), np.array(y), scaler
 
-def calculate_rsi(prices, period=14):
-    """Calculate RSI technical indicator"""
-    delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-def calculate_macd(prices, fast=12, slow=26):
-    """Calculate MACD technical indicator"""
-    exp1 = prices.ewm(span=fast, adjust=False).mean()
-    exp2 = prices.ewm(span=slow, adjust=False).mean()
-    return exp1 - exp2
 
 async def event_generator(model_id: str):
     """Generator for SSE events to track model training status."""
@@ -101,7 +142,105 @@ async def event_generator(model_id: str):
     except Exception as e:
         yield json.dumps({"error": str(e)})
 
+
+def calculate_target_prices(current_price, predicted_price):
+    """Calculate target prices and confidence for signals"""
+    predicted_change = (predicted_price - current_price) / current_price
+    
+    # Calculate confidence based on the magnitude of predicted change
+    # Scale it to be between 0-100
+    confidence = min(abs(predicted_change) * 200, 100)  # 50% change = 100% confidence
+    
+    # Set target price based on predicted movement
+    if predicted_change > 0:  # Buy signal
+        target_price = predicted_price
+        stop_loss = current_price * 0.98  # 2% stop loss
+    else:  # Sell signal
+        target_price = predicted_price
+        stop_loss = current_price * 1.02  # 2% stop above entry
+    
+    return target_price, stop_loss, confidence
+
 # Endpoints
+
+def prepare_features(df: pd.DataFrame) -> np.ndarray:
+    """Prepare feature set for prediction"""
+    feature_columns = [
+        'Close', 'Volume', 
+        'MA5', 'MA20', 'EMA20',
+        'RSI', 'ROC',
+        'ATR', 'BBANDS_U', 'BBANDS_M', 'BBANDS_L',
+        'OBV', 'AD', 'MFI',
+        'ADX', 'PLUS_DI', 'MINUS_DI',
+        'MACD', 'MACD_SIGNAL'
+    ]
+    
+    # Make sure all values are float64
+    for col in feature_columns:
+        df[col] = df[col].astype('float64')
+        
+    return df[feature_columns].values
+
+@router.post("/model/{model_id}/analyze")
+async def analyze_stock(
+    model_id: str,
+    request: Request,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        body = await request.json()
+        symbol = body["symbol"].upper()
+        selected_features = body.get("features", [])
+        
+        logger.info(f"Analyzing {symbol} with features: {selected_features}")
+        
+        # Get model info from database
+        model_info = models_collection.find_one({
+            "id": model_id,
+            "user_email": current_user
+        })
+        
+        if not model_info:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model_path = model_info.get('path')
+        if not model_path or not os.path.exists(model_path):
+            raise HTTPException(status_code=400, detail="Model file not found")
+
+        # Initialize analyzer
+        analyzer = ModelAnalyzer(model_path)
+        
+        # Get stock data
+        df = await get_stock_training_data(symbol)
+        if df.empty:
+            raise HTTPException(status_code=400, detail=f"No data available for {symbol}")
+
+        # Perform analysis
+        signals, used_features = analyzer.analyze_stock(df, selected_features)
+        
+        return {
+            "symbol": symbol,
+            "signals": signals,
+            "features_used": used_features,
+            "analysis_date": datetime.now(timezone.utc).isoformat(),
+            "model_id": model_id
+        }
+        
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        logger.error(f"Value error: {str(ve)}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Analysis error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
 
 @router.post("/model/train")
 async def train_model(
@@ -291,51 +430,162 @@ async def upload_model(
     current_user: str = Depends(get_current_user)
 ):
     try:
-        # Validate file extension
-        valid_extensions = ['.h5', '.keras', '.pkl', '.joblib']
-        file_extension = os.path.splitext(model.filename)[1].lower()
+        # Create a new ObjectId for the model
+        model_id = str(ObjectId())
         
-        if file_extension not in valid_extensions:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type. Supported formats: {', '.join(valid_extensions)}"
-            )
-
-        # Create unique filename
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
-        unique_filename = f"{current_user}_{timestamp}{file_extension}"
-        file_path = os.path.join(SETTINGS.MODEL_DIR, unique_filename)
-
+        # Ensure the filename has .keras extension
+        base_filename = os.path.splitext(model.filename)[0]
+        file_path = os.path.join(SETTINGS.MODEL_DIR, f"{base_filename}.keras")
+        
+        # Make sure the models directory exists
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        logger.info(f"Saving model to: {file_path}")
+        
         # Save the file
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(model.file, buffer)
-
-        # Create model document
+            
+        logger.info(f"Model saved successfully at: {file_path}")
+        
+        # Create the model document
         model_doc = {
+            "_id": ObjectId(model_id),
+            "id": model_id,  # Store both _id and id
             "user_email": current_user,
-            "name": model.filename,
+            "name": f"{base_filename}.keras",
             "path": file_path,
             "uploadDate": datetime.now(timezone.utc),
             "status": "inactive",
-            "features": ["price", "volume", "technical_indicators"],  # Default features
+            "features": ["price", "volume", "technical_indicators"]
         }
-
+        
         # Insert into database
-        result = models_collection.insert_one(model_doc)
-        model_doc["id"] = str(result.inserted_id)
-        del model_doc["_id"]
-
+        models_collection.insert_one(model_doc)
+        logger.info(f"Model document created with ID: {model_id}")
+        
         return {
             "message": "Model uploaded successfully",
-            "model": model_doc
+            "model": {
+                "id": model_id,
+                "name": model_doc["name"],
+                "path": model_doc["path"],
+                "uploadDate": model_doc["uploadDate"].isoformat(),
+                "status": "inactive",
+                "features": model_doc["features"]
+            }
         }
-
+        
     except Exception as e:
-        # Clean up file if it was created
+        logger.error(f"Upload error: {str(e)}", exc_info=True)
         if 'file_path' in locals() and os.path.exists(file_path):
             os.remove(file_path)
-        logger.error(f"Model upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/model/{model_id}/analyze")
+async def analyze_stock(
+    model_id: str,
+    request: Request,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        logger.debug(f"Starting analysis for model_id: {model_id}")
+        logger.debug(f"Current user: {current_user}")
+        
+        # Find the model document
+        model_info = None
+        
+        # Try all possible ways to find the model
+        queries = [
+            {"id": model_id, "user_email": current_user},
+            {"_id": model_id, "user_email": current_user},
+            {"path": {"$regex": f".*{model_id}.*"}, "user_email": current_user},
+            {"name": "first_model.keras", "user_email": current_user}  # Fallback to find by name
+        ]
+        
+        for query in queries:
+            logger.debug(f"Trying to find model with query: {query}")
+            model_info = models_collection.find_one(query)
+            if model_info:
+                logger.debug(f"Found model info: {model_info}")
+                break
+                
+        if not model_info:
+            logger.error(f"Model not found in database for ID: {model_id}")
+            # List all models for debugging
+            all_models = list(models_collection.find({"user_email": current_user}))
+            logger.debug(f"Available models: {all_models}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model not found with ID: {model_id}"
+            )
+
+        # Get the model path
+        model_path = model_info.get('path')
+        logger.debug(f"Model path from database: {model_path}")
+        
+        # Check if path exists
+        if not os.path.exists(model_path):
+            logger.error(f"Model file not found at path: {model_path}")
+            # Try to find the file in the models directory
+            models_dir = SETTINGS.MODEL_DIR
+            logger.debug(f"Checking models directory: {models_dir}")
+            if os.path.exists(models_dir):
+                files = os.listdir(models_dir)
+                logger.debug(f"Files in models directory: {files}")
+            
+            # Try alternative path
+            alt_path = os.path.join(SETTINGS.MODEL_DIR, "first_model.keras")
+            if os.path.exists(alt_path):
+                logger.debug(f"Found model at alternative path: {alt_path}")
+                model_path = alt_path
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Model file not found"
+                )
+
+        # Load the model
+        logger.debug(f"Attempting to load model from: {model_path}")
+        try:
+            model = load_model(model_path)
+            logger.info("Model loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load model: {str(e)}"
+            )
+
+        # Get request body and process
+        body = await request.json()
+        symbol = body["symbol"].upper()
+        logger.debug(f"Processing symbol: {symbol}")
+
+        # Get stock data
+        df = await get_stock_training_data(symbol, period="1y")
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No data available for symbol {symbol}"
+            )
+
+        # Process data and make predictions
+        # ... rest of your prediction code ...
+
+        return {
+            "symbol": symbol,
+            "signals": signals,
+            "analysis_date": datetime.now(timezone.utc).isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Analysis error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=str(e))
 
 @router.post("/models/{model_id}/toggle")
 async def toggle_model(
@@ -391,9 +641,12 @@ async def delete_model(
     current_user: str = Depends(get_current_user)
 ):
     try:
+        # Convert string ID to ObjectId
+        model_object_id = ObjectId(model_id)
+        
         # Find the model
         model = models_collection.find_one({
-            "id": model_id,
+            "_id": model_object_id,
             "user_email": current_user
         })
         
@@ -401,14 +654,22 @@ async def delete_model(
             raise HTTPException(status_code=404, detail="Model not found")
 
         # Delete the file if it exists
-        if os.path.exists(model["path"]):
+        if "path" in model and os.path.exists(model["path"]):
             os.remove(model["path"])
 
         # Delete from database
-        models_collection.delete_one({"id": model_id})
+        result = models_collection.delete_one({
+            "_id": model_object_id,
+            "user_email": current_user
+        })
+
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Model not found")
 
         return {"message": "Model deleted successfully"}
 
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid model ID format")
     except Exception as e:
         logger.error(f"Delete model error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
