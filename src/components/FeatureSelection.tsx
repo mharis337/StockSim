@@ -1,25 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+
+const ValidationModal = ({ message, details, onClose }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
+    <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
+      <div className="flex items-start mb-4">
+        <AlertCircle className="h-6 w-6 text-red-500 mr-3 flex-shrink-0 mt-0.5" />
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">{message}</h3>
+          {details && (
+            <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
+              {details.map((detail, index) => (
+                <li key={index}>{detail}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Understood
+        </button>
+      </div>
+    </div>
+  </div>
+);
 
 const FeatureSelector = ({ 
   isOpen, 
   onClose, 
   onFeaturesSelected, 
-  stockData, 
-  modelInfo, 
-  previousFeatures = []
+  modelInfo,
+  previousFeatures = [] 
 }) => {
   const [selectedFeatures, setSelectedFeatures] = useState(new Set(previousFeatures));
-  const [modelRequirements, setModelRequirements] = useState({
-    requiredFeatures: 32,
-    recommendedFeatures: []
-  });
-  const [validationStatus, setValidationStatus] = useState({
-    isValid: true,
-    message: '',
-    details: []
-  });
+  const [validationError, setValidationError] = useState(null);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  // Ensure modelInfo has valid required features count
+    // Debug log modelInfo structure
+    useEffect(() => {
+      console.log('Full modelInfo object:', modelInfo);
+      if (modelInfo) {
+        console.log('Required features:', modelInfo.requiredFeatures);
+        console.log('Model info keys:', Object.keys(modelInfo));
+      }
+    }, [modelInfo]);
+  
+    // Safely extract required features with fallback
+    const getRequiredFeatures = () => {
+      if (!modelInfo) return null;
+      
+      // Try different possible property names
+      const required = modelInfo.requiredFeatures || 
+                      modelInfo.required_features ||
+                      (modelInfo.model && modelInfo.model.requiredFeatures) ||
+                      (modelInfo.model && modelInfo.model.required_features);
+  
+      console.log('Extracted required features:', required);
+      return required;
+    };
+  
+    const requiredFeatures = getRequiredFeatures();
+
+    if (!modelInfo || typeof requiredFeatures !== 'number') {
+      console.error('Invalid model configuration:', {
+        modelInfo,
+        requiredFeatures
+      });
+      return null;
+    }
+  if (typeof requiredFeatures !== 'number' || requiredFeatures <= 0) {
+    console.error('Invalid or missing required features count:', modelInfo);
+  }
 
   const FEATURE_GROUPS = {
     'Price': {
@@ -66,34 +122,53 @@ const FeatureSelector = ({
 
   const validateFeatures = () => {
     const count = selectedFeatures.size;
-    const required = modelRequirements.requiredFeatures;
-    const status = {
-      isValid: true,
-      message: '',
-      details: []
-    };
-
-    if (count === 0) {
-      status.isValid = false;
-      status.message = 'Please select at least one feature';
-    } else if (count < required) {
-      status.isValid = false;
-      status.message = `Model requires ${required} features (${required - count} more needed)`;
-      status.details.push(`The remaining features will be auto-selected based on relevance`);
-    } else if (count > required) {
-      status.isValid = false;
-      status.message = `Model only accepts ${required} features (${count - required} will be trimmed)`;
-      status.details.push('Only the first features will be used, in order of selection');
-    } else {
-      status.message = 'Feature selection valid';
+    
+    // Early validation for missing modelInfo
+    if (!modelInfo || typeof requiredFeatures !== 'number') {
+      return {
+        isValid: false,
+        message: 'Model Configuration Error',
+        details: [
+          'Unable to determine required feature count.',
+          'Please try again or contact support if the issue persists.'
+        ]
+      };
     }
 
-    setValidationStatus(status);
-  };
+    if (count === 0) {
+      return {
+        isValid: false,
+        message: 'Feature Selection Error',
+        details: ['Please select at least one feature']
+      };
+    }
 
-  useEffect(() => {
-    validateFeatures();
-  }, [selectedFeatures]);
+    if (count < requiredFeatures) {
+      return {
+        isValid: false,
+        message: 'Insufficient Features Selected',
+        details: [
+          `This model requires exactly ${requiredFeatures} features`,
+          `You have selected ${count} features`,
+          `Please select ${requiredFeatures - count} more features`
+        ]
+      };
+    }
+
+    if (count > requiredFeatures) {
+      return {
+        isValid: false,
+        message: 'Too Many Features Selected',
+        details: [
+          `This model requires exactly ${requiredFeatures} features`,
+          `You have selected ${count} features`,
+          `Please remove ${count - requiredFeatures} features`
+        ]
+      };
+    }
+
+    return { isValid: true };
+  };
 
   const handleFeatureToggle = (feature) => {
     const newSelected = new Set(selectedFeatures);
@@ -103,9 +178,16 @@ const FeatureSelector = ({
       newSelected.add(feature);
     }
     setSelectedFeatures(newSelected);
+    setValidationError(null);
   };
 
   const handleConfirm = () => {
+    const validation = validateFeatures();
+    if (!validation.isValid) {
+      setValidationError(validation);
+      setShowValidationModal(true);
+      return;
+    }
     onFeaturesSelected(Array.from(selectedFeatures));
     onClose();
   };
@@ -118,41 +200,26 @@ const FeatureSelector = ({
         <div className="sticky top-0 bg-white px-6 py-4 border-b border-gray-200">
           <h2 className="text-2xl font-bold text-gray-900">Select Features for Analysis</h2>
           <p className="text-gray-600 mt-1">
-            Model requires exactly {modelRequirements.requiredFeatures} features
+            Model requires exactly {requiredFeatures} features
           </p>
         </div>
 
         <div className="p-6">
-          {validationStatus.message && (
-            <Alert 
-              variant={validationStatus.isValid ? "default" : "destructive"}
-              className="mb-4"
-            >
-              {validationStatus.isValid ? (
-                <CheckCircle2 className="h-4 w-4" />
-              ) : (
-                <AlertTriangle className="h-4 w-4" />
-              )}
-              <AlertDescription>
-                <div className="font-medium">{validationStatus.message}</div>
-                {validationStatus.details.map((detail, index) => (
-                  <div key={index} className="text-sm mt-1 opacity-80">{detail}</div>
-                ))}
-              </AlertDescription>
-            </Alert>
-          )}
+          <Alert 
+            variant="default"
+            className="mb-6"
+          >
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              Selected features: {selectedFeatures.size} / {requiredFeatures} required
+            </AlertDescription>
+          </Alert>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {Object.entries(FEATURE_GROUPS).map(([group, { features, description }]) => (
               <div key={group} className="border rounded-lg p-4">
                 <div className="flex items-start justify-between mb-3">
                   <h3 className="font-semibold text-gray-800">{group}</h3>
-                  <button 
-                    className="text-gray-400 hover:text-gray-600"
-                    onClick={() => {}}
-                  >
-                    <Info className="w-4 h-4" />
-                  </button>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">{description}</p>
                 <div className="space-y-2">
@@ -190,13 +257,21 @@ const FeatureSelector = ({
             </button>
             <button
               onClick={handleConfirm}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               Confirm Selection
             </button>
           </div>
         </div>
       </div>
+
+      {showValidationModal && validationError && (
+        <ValidationModal
+          message={validationError.message}
+          details={validationError.details}
+          onClose={() => setShowValidationModal(false)}
+        />
+      )}
     </div>
   );
 };

@@ -48,6 +48,19 @@ interface Prediction {
     signal: 'buy' | 'sell' | 'hold';
 }
 
+
+interface InfoMessage {
+    type: 'success' | 'warning' | 'error';
+    message: string;
+    details?: string[];
+    featureChanges?: {
+        added: string[];
+        removed: string[];
+    };
+}
+
+
+
 const COLORS = [
     '#4F46E5',
     '#EF4444',
@@ -124,7 +137,8 @@ const ModelManager = () => {
     const [xDomain, setXDomain] = useState<[number, number] | null>(null);
     const [dropdownOpen, setDropdownOpen] = useState<{ [key: string]: boolean }>({});
     const [predictions, setPredictions] = useState<Prediction[]>([]);
-  
+    const [info, setInfo] = useState<InfoMessage | null>(null); // Add this new state
+
     const chartContainerRef = useRef<HTMLDivElement | null>(null);
     const [isFeatureSelectorOpen, setFeatureSelectorOpen] = useState(false);
     const [pendingAnalysis, setPendingAnalysis] = useState<{
@@ -224,40 +238,83 @@ const ModelManager = () => {
         </div>
     );
 
+    const DEFAULT_MODEL_INFO = {
+        requiredFeatures: 32, // Default number of features if not specified
+        recommendedFeatures: [],
+        modelType: 'default',
+        features: []
+      };
+
     const handleAnalyzeClick = async (model, symbol) => {
         try {
-            setIsLoading(true);
-            setError(null);
-            
-            const token = localStorage.getItem('token');
-            const modelInfoResponse = await fetch(`http://localhost:5000/api/models/${model.id}/info`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (!modelInfoResponse.ok) {
-                throw new Error('Failed to fetch model information');
+          setIsLoading(true);
+          setError(null);
+          
+          // Debug log the initial model data
+          console.log('Initial model data:', model);
+          
+          const token = localStorage.getItem('token');
+          const modelInfoResponse = await fetch(`http://localhost:5000/api/models/${model.id}/info`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
             }
-            
-            const modelInfo = await modelInfoResponse.json();
+          });
+          
+          if (!modelInfoResponse.ok) {
+            console.error('Model info response not OK:', modelInfoResponse.status);
+            throw new Error('Failed to fetch model information');
+          }
+          
+          const rawModelInfo = await modelInfoResponse.json();
+          console.log('Raw API response:', rawModelInfo);
+      
+          // If we got an empty response or no required_features, use defaults
+          if (!rawModelInfo || typeof rawModelInfo.required_features !== 'number') {
+            console.warn('Using default model info due to invalid API response');
             
             setPendingAnalysis({
-                model: {
-                    ...model,
-                    requiredFeatures: modelInfo.required_features,
-                    recommendedFeatures: modelInfo.recommended_features
-                },
-                symbol
+              model,
+              symbol,
+              modelInfo: DEFAULT_MODEL_INFO
             });
-            setFeatureSelectorOpen(true);
-            
+          } else {
+            const processedModelInfo = {
+              requiredFeatures: rawModelInfo.required_features,
+              recommendedFeatures: rawModelInfo.recommended_features || [],
+              modelType: rawModelInfo.model_type || 'unknown',
+              features: rawModelInfo.features || []
+            };
+      
+            console.log('Processed model info:', processedModelInfo);
+      
+            setPendingAnalysis({
+              model,
+              symbol,
+              modelInfo: processedModelInfo
+            });
+          }
+          
+          // Debug log the final state
+          console.log('Setting pendingAnalysis:', pendingAnalysis);
+          
+          setFeatureSelectorOpen(true);
+          
         } catch (err) {
-            setError('Failed to start analysis: ' + err.message);
+          console.error('Analysis error:', err);
+          setError(`Failed to start analysis: ${err.message}`);
+          
+          // Even on error, we'll use default values to allow the feature selector to open
+          setPendingAnalysis({
+            model,
+            symbol,
+            modelInfo: DEFAULT_MODEL_INFO
+          });
+          setFeatureSelectorOpen(true);
         } finally {
-            setIsLoading(false);
+          setIsLoading(false);
         }
-    };
+      };
+      
 
     const REQUIRED_FEATURES = [
         'BB_Upper', 'STDDEV', 'SAR', 'BB_Middle', 'R1', 'BB_Lower', 
@@ -272,73 +329,96 @@ const ModelManager = () => {
         setFeatureSelectorOpen(false);
         
         try {
-            setIsLoading(true);
-            setError(null);
-            
-            const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    symbol,
-                    features: selectedFeatures
-                })
+          setIsLoading(true);
+          setError(null);
+          
+          const token = localStorage.getItem('token');
+          const response = await fetch(`http://localhost:5000/api/model/${model.id}/analyze`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              symbol,
+              features: selectedFeatures
+            })
+          });
+      
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Analysis failed');
+          }
+      
+          const data = await response.json();
+          setStockData(prevData => {
+            return prevData.map(record => {
+              const signal = data.signals.find(s => 
+                s.date === new Date(record.Date).toISOString().split('T')[0]
+              );
+              if (signal) {
+                return {
+                  ...record,
+                  buySignal: signal.signal === 'buy',
+                  sellSignal: signal.signal === 'sell',
+                  targetPrice: signal.target_price,
+                  stopLoss: signal.stop_loss,
+                  confidence: signal.confidence
+                };
+              }
+              return record;
             });
-        
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Analysis failed');
-            }
-        
-            const data = await response.json();
-            
-            if (selectedFeatures.length !== data.features_used.length) {
-                setInfo({
-                    type: 'warning',
-                    message: 'Feature selection was adjusted',
-                    details: [
-                        `Selected: ${selectedFeatures.length} features`,
-                        `Actually used: ${data.features_used.length} features`,
-                        'Adjusted to match model requirements:'
-                    ],
-                    featureChanges: {
-                        added: data.features_used.filter(f => !selectedFeatures.includes(f)),
-                        removed: selectedFeatures.filter(f => !data.features_used.includes(f))
-                    }
-                });
-            }
-            
-            setStockData(prevData => {
-                return prevData.map(record => {
-                    const signal = data.signals.find(s => 
-                        s.date === new Date(record.Date).toISOString().split('T')[0]
-                    );
-                    if (signal) {
-                        return {
-                            ...record,
-                            buySignal: signal.signal === 'buy',
-                            sellSignal: signal.signal === 'sell',
-                            targetPrice: signal.target_price,
-                            stopLoss: signal.stop_loss,
-                            confidence: signal.confidence
-                        };
-                    }
-                    return record;
-                });
-            });
-            
-            setPredictions(data.signals);
-            
+          });
+          
+          setPredictions(data.signals);
+          
         } catch (err) {
-            setError(err.message);
+          setError(err.message);
         } finally {
-            setIsLoading(false);
-            setPendingAnalysis(null);
+          setIsLoading(false);
+          setPendingAnalysis(null);
         }
+      };
+
+    const renderInfoMessage = () => {
+        if (!info) return null;
+
+        return (
+            <Alert 
+                variant={info.type === 'success' ? 'default' : info.type === 'warning' ? 'default' : 'destructive'}
+                className="mb-4"
+            >
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                    <div className="font-medium">{info.message}</div>
+                    {info.details && (
+                        <ul className="mt-2 ml-4 list-disc">
+                            {info.details.map((detail, index) => (
+                                <li key={index} className="text-sm">{detail}</li>
+                            ))}
+                        </ul>
+                    )}
+                    {info.featureChanges && (
+                        <div className="mt-2">
+                            {info.featureChanges.added.length > 0 && (
+                                <div className="text-sm text-green-600">
+                                    Added: {info.featureChanges.added.join(', ')}
+                                </div>
+                            )}
+                            {info.featureChanges.removed.length > 0 && (
+                                <div className="text-sm text-red-600">
+                                    Removed: {info.featureChanges.removed.join(', ')}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </AlertDescription>
+            </Alert>
+        );
     };
+
+
+
 
     const indicatorGroups: { [key: string]: string[] } = {
         'Price': ['Close', 'High', 'Low', 'Open'],
@@ -706,15 +786,18 @@ const ModelManager = () => {
                     </div>
                 </div>
 
-                <FeatureSelector
-                    isOpen={isFeatureSelectorOpen}
-                    onClose={() => {
-                        setFeatureSelectorOpen(false);
-                        setPendingAnalysis(null);
-                    }}
-                    onFeaturesSelected={handleFeaturesSelected}
-                    stockData={stockData}
-                />
+                {isFeatureSelectorOpen && pendingAnalysis && (
+  <FeatureSelector
+    isOpen={isFeatureSelectorOpen}
+    onClose={() => {
+      setFeatureSelectorOpen(false);
+      setPendingAnalysis(null);
+    }}
+    onFeaturesSelected={handleFeaturesSelected}
+    modelInfo={pendingAnalysis.modelInfo || DEFAULT_MODEL_INFO}
+    previousFeatures={[]}
+  />
+)}
 
                 {error && (
                     <Alert variant="destructive">
@@ -722,6 +805,8 @@ const ModelManager = () => {
                         <AlertDescription>{error}</AlertDescription>
                     </Alert>
                 )}
+
+                {renderInfoMessage()}
 
                 <div className="bg-white rounded-lg shadow p-6">
                     <div className="flex gap-6">
