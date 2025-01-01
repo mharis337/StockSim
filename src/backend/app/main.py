@@ -5,10 +5,13 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+import traceback
+import logging
 
 # Third-Party Imports
 import numpy as np
 import pandas as pd
+import talib
 import pytz
 import tensorflow as tf
 import yfinance as yf
@@ -21,6 +24,7 @@ from pymongo import MongoClient
 from sklearn.preprocessing import MinMaxScaler
 from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+import math
 
 # FastAPI Imports
 from fastapi import (
@@ -67,6 +71,7 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
+logger = logging.getLogger(__name__)
 
 # Add OPTIONS endpoint for model training
 @app.options("/api/model/train")
@@ -608,6 +613,158 @@ async def get_stock_data(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def process_dataframe(df: pd.DataFrame) -> list:
+    """
+    Process the DataFrame by calculating technical indicators,
+    replacing NaNs with None, and converting to a list of records.
+    """
+    # Reset index to ensure 'Date' is a column
+    df.reset_index(inplace=True)
+
+    # Ensure 'Date' column is datetime
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"])
+    elif "Datetime" in df.columns:
+        df.rename(columns={"Datetime": "Date"}, inplace=True)
+        df["Date"] = pd.to_datetime(df["Date"])
+
+    # Align to market open times
+    #df = align_to_market_open(df, interval)
+
+    # Rename 'Adj Close' to 'AdjClose' if present
+    if "Adj Close" in df.columns:
+        df.rename(columns={"Adj Close": "AdjClose"}, inplace=True)
+
+    # Calculate Technical Indicators using TA-Lib
+    close = df['Close']
+    high = df['High']
+    low = df['Low']
+    volume = df['Volume']
+
+    # Moving Averages
+    df['SMA_20'] = talib.SMA(close, timeperiod=20)
+    df['EMA_20'] = talib.EMA(close, timeperiod=20)
+
+    # MACD
+    macd, macd_signal, macd_hist = talib.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
+    df['MACD'] = macd
+    df['MACD_Signal'] = macd_signal
+    df['MACD_Hist'] = macd_hist
+
+    # Bollinger Bands
+    upper, middle, lower = talib.BBANDS(close, timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+    df['BB_Upper'] = upper
+    df['BB_Middle'] = middle
+    df['BB_Lower'] = lower
+
+    # Parabolic SAR
+    df['SAR'] = talib.SAR(high, low, acceleration=0.02, maximum=0.2)
+
+    # RSI
+    df['RSI'] = talib.RSI(close, timeperiod=14)
+
+    # Stochastic Oscillator
+    slowk, slowd = talib.STOCH(high, low, close, fastk_period=14, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
+    df['STOCH_K'] = slowk
+    df['STOCH_D'] = slowd
+
+    # Williams %R
+    df['WILLR'] = talib.WILLR(high, low, close, timeperiod=14)
+
+    # Rate of Change (ROC)
+    df['ROC'] = talib.ROC(close, timeperiod=10)
+
+    # On-Balance Volume (OBV)
+    df['OBV'] = talib.OBV(close, volume)
+
+    # Chaikin AD
+    df['AD'] = talib.AD(high, low, close, volume)
+
+    # Money Flow Index (MFI)
+    df['MFI'] = talib.MFI(high, low, close, volume, timeperiod=14)
+
+    # Average True Range (ATR)
+    df['ATR'] = talib.ATR(high, low, close, timeperiod=14)
+
+    # Standard Deviation
+    df['STDDEV'] = talib.STDDEV(close, timeperiod=20, nbdev=1)
+
+    # Average Directional Movement Index (ADX)
+    df['ADX'] = talib.ADX(high, low, close, timeperiod=14)
+
+    # Plus Directional Indicator (+DI)
+    df['PLUS_DI'] = talib.PLUS_DI(high, low, close, timeperiod=14)
+
+    # Minus Directional Indicator (-DI)
+    df['MINUS_DI'] = talib.MINUS_DI(high, low, close, timeperiod=14)
+
+    # Ichimoku Components
+    df['TENKAN_SEN'] = (df['High'].rolling(window=9).max() + df['Low'].rolling(window=9).min()) / 2
+    df['KIJUN_SEN'] = (df['High'].rolling(window=26).max() + df['Low'].rolling(window=26).min()) / 2
+    df['SENKOU_SPAN_A'] = ((df['TENKAN_SEN'] + df['KIJUN_SEN']) / 2).shift(26)
+    df['SENKOU_SPAN_B'] = (df['High'].rolling(window=52).max() + df['Low'].rolling(window=52).min()) / 2
+    df['SENKOU_SPAN_B'] = df['SENKOU_SPAN_B'].shift(26)
+    df['CHIKO_SPAN'] = df['Close'].shift(-26)
+
+    # Pivot Points (Simple Pivot)
+    df['PIVOT'] = (df['High'] + df['Low'] + df['Close']) / 3
+    df['R1'] = (2 * df['PIVOT']) - df['Low']
+    df['S1'] = (2 * df['PIVOT']) - df['High']
+
+    # Drop rows where critical columns are NaN
+    critical_columns = ['Close', 'High', 'Low', 'Open']
+    df.dropna(subset=critical_columns, inplace=True)
+
+    # Replace all NaNs with None for JSON serialization
+    df = df.where(pd.notnull(df), None)
+
+    # Convert DataFrame to list of dictionaries
+    data_json = df.to_dict(orient="records")
+
+    # Final check to replace any remaining NaNs
+    for record in data_json:
+        for key, value in record.items():
+            if isinstance(value, float) and math.isnan(value):
+                record[key] = None
+
+    return data_json
+
+@app.get("/api/historic_stock/{symbol}")
+async def get_historic_stock_data(
+    symbol: str, 
+    interval: str = "1d",  
+    timeframe: str = "5y",
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        df = yf.download(tickers=symbol, period=timeframe, interval=interval)
+        if df.empty:
+            logger.warning(f"No data found for symbol: {symbol}")
+            raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel("Ticker")
+            logger.info("Dropped MultiIndex from columns.")
+
+        data_json = process_dataframe(df)
+
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "timeframe": timeframe,
+            "data": data_json,
+        }
+
+    except Exception as e:
+        logger.error(f"Error in get_historic_stock_data: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
 
 ### MODEL ASPECT ####
 
