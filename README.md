@@ -1,182 +1,174 @@
-# Stock Trading Simulation App
+# StockSim: Master Stock Trading Without Risk
 
-A full-stack stock trading simulation application that allows users to mimic buying and selling stocks, integrates machine learning models to make trading decisions, and evaluates model performance over time. The app fetches real-time and historical stock data using APIs and provides a user-friendly interface for interacting with stock markets.
+## Project Overview
+StockSim is a stock trading simulation platform designed to help users practice trading with real-time market data. It provides users with a risk-free environment to build their confidence and strategy in stock trading while leveraging AI-powered tools for analysis and decision-making.
+
+---
+
+## Table of Contents
+1. [Features](#features)
+2. [Tech Stack](#tech-stack)
+3. [Installation and Setup](#installation-and-setup)
+4. [Usage Guide](#usage-guide)
+5. [Project Structure](#project-structure)
+6. [Screenshots](#screenshots)
+7. [Contributing](#contributing)
+8. [License](#license)
 
 ---
 
 ## Features
-
-### **Frontend**
-- Built with **React.js** for a dynamic and responsive user interface.
-- Displays stock information, user portfolio, and trading metrics.
-- Enables stock trading simulations with an interactive dashboard.
-- Tracks and visualizes the performance of various trading models.
-
-### **Backend**
-- Developed with **Node.js** and **Express.js**.
-- Handles API requests, user authentication, and business logic.
-- Integrates with machine learning models for trading automation.
-- Provides secure communication via REST APIs.
-
-### **Machine Learning Integration**
-- **Python-based models** for buy/sell predictions and decision-making.
-- Models built with **TensorFlow** for deep learning and predictive analytics.
-- Performance metrics tracked and compared for model evaluation.
-
-### **Database**
-- **MongoDB** for storing:
-  - User profiles and portfolios.
-  - Stock transaction data.
-  - ML model predictions and performance metrics.
-
-### **Data Source**
-- Real-time and historical stock data fetched from **Alpha Vantage API**.
-- Provides market trends, stock prices, and analytics data.
+- **Real-Time Market Data**: Fetch live market data to simulate trading conditions.
+- **AI Model Manager**: Train and backtest machine learning trading models.
+- **Portfolio Management**: Monitor your virtual portfolio's performance and track your trading history.
+- **Interactive UI**: User-friendly interface for seamless navigation and functionality.
+- **Secure Authentication**: Robust login and registration system for secure user access.
 
 ---
 
-## Technology Stack
-
-### **Frontend**
-- **React.js**: For building the user interface.
-- **Material-UI** or **Tailwind CSS**: For styling components.
-
-### **Backend**
-- **Node.js**: Server-side runtime environment.
-- **Express.js**: Framework for building RESTful APIs.
-
-### **Database**
-- **MongoDB**: NoSQL database for flexible data storage.
-- **Mongoose**: ORM for MongoDB.
-
-### **Machine Learning**
-- **Python**:
-  - **TensorFlow** for deep learning models.
-  - REST API integration for ML models using **Flask**.
-
-### **Data Source**
-- **Alpha Vantage API**: For stock market data.
-- Libraries: **Axios** for API calls, **Pandas** for data manipulation.
+## Tech Stack
+- **Frontend**:
+  - Next.js
+  - TypeScript
+  - Tailwind CSS
+- **Backend**:
+  - FastAPI
+  - Python
+  - MongoDB
+- **Machine Learning**:
+  - TensorFlow/Keras
+  - Scikit-learn
+- **Others**:
+  - Vercel (Hosting)
+  - Docker (Optional for development)
 
 ---
 
-## Project Setup
+## Installation and Setup
 
-### **1. Prerequisites**
-Ensure you have the following installed:
-- **Node.js** and **npm**
-- **Python 3.x**
-- **MongoDB**
+### Prerequisites
+- Node.js
+- Python 3.8+
+- MongoDB instance
+- Vercel CLI (optional for deployment)
 
-### **2. Clone the Repository**
-```bash
-git clone https://github.com/your-username/stock-trading-app.git
-cd stock-trading-app
-```
+### Steps
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/your-repo/stocksim.git
+   cd stocksim
+   ```
+2. **Install Frontend Dependencies**:
+   ```bash
+   cd stocksim
+   npm install
+   ```
+3. **Install Backend Dependencies**:
+   ```bash
+   cd src/backend
+   pip install -r requirements.txt
+   ```
+4. **Set Up Environment Variables**:
+   - Create a `.env` file in the `src/backend/app` and `stocksim` directories.
+   - Refer to `.env.local` and `.env` for variable definitions.
 
-### **3. Install Dependencies**
-#### Frontend
-```bash
-cd frontend
-npm install
-```
-
-#### Backend
-```bash
-cd backend
-npm install
-```
-
-### **4. Set Up Environment Variables**
-Create a `.env` file in the `backend` directory and configure the following:
-```env
-PORT=5000
-MONGO_URI=your_mongodb_connection_string
-ALPHA_VANTAGE_API_KEY=your_api_key
-JWT_SECRET=your_secret_key
-```
-
-### **5. Start the Application**
-#### Start MongoDB
-```bash
-mongod
-```
-
-#### Start Backend
-```bash
-cd backend
-npm run dev
-```
-
-#### Start Frontend
-```bash
-cd frontend
-npm start
-```
-
-### **6. Machine Learning Models**
-Ensure Python dependencies are installed:
-```bash
-pip install tensorflow flask
-```
-Run the ML API:
-```bash
-cd ml-api
-python app.py
-```
+5. **Run the Backend Server**:
+   ```bash
+   cd src/backend/app
+   python main.py
+   ```
+6. **Run the Frontend Server**:
+   ```bash
+   cd stocksim
+   npm run dev
+   ```
+7. **Access the Application**:
+   Navigate to `http://localhost:3000` in your web browser.
 
 ---
 
-## Folder Structure
+## Usage Guide
 
-```
-stock-trading-app/
-├── frontend/        # React.js frontend code
-├── backend/         # Node.js and Express.js backend code
-├── ml-api/          # Python code for ML models
-├── database/        # MongoDB scripts and models
-├── README.md        # Project documentation
-```
+### Login and Registration
+- Navigate to the login or registration page.
+- Enter credentials to create an account or access your existing profile.
 
----
+### Dashboard
+- Monitor your portfolio's performance, view the watchlist, and analyze transaction history.
 
-## API Endpoints
+### Trading
+- Search for a stock symbol (e.g., INTC) and execute buy or sell trades.
+- View price charts and analyze market trends before making decisions.
 
-### **Backend Endpoints**
-| Endpoint              | Method | Description                     |
-|-----------------------|--------|---------------------------------|
-| `/api/users/register` | POST   | Register a new user             |
-| `/api/users/login`    | POST   | Log in a user                   |
-| `/api/stocks`         | GET    | Fetch stock data                |
-| `/api/trades`         | POST   | Simulate a stock trade          |
-| `/api/models`         | GET    | Fetch ML model performance data |
-
-### **ML API Endpoints**
-| Endpoint         | Method | Description                          |
-|------------------|--------|--------------------------------------|
-| `/predict`       | POST   | Get stock buy/sell predictions       |
-| `/evaluate`      | GET    | Evaluate ML model performance        |
+### AI Model Manager
+- Train and test AI trading models using historical stock data.
+- Evaluate model accuracy and performance.
 
 ---
 
-## Future Improvements
+## Project Structure
+```
+|- stocksim
+  |- src
+    |- app
+      |- api
+      |- dashboard
+      |- login
+      |- model-training
+      |- register
+      |- trade
+    |- backend
+      |- app
+      |- models
+      |- utils
+    |- components
+    |- lib
+    |- middleware.ts
+    |- types
+  |- public
+  |- node_modules
+  |- package.json
+  |- tsconfig.json
+  |- tailwind.config.js
+```
+Refer to [project_structure.txt](project_structure.txt) for a detailed breakdown.
 
-1. **Add Authentication**: Multi-factor authentication for secure login.
-2. **Enhanced Data Visualization**: Use libraries like **D3.js** or **Chart.js**.
-3. **Real-Time Data**: Integrate with WebSockets for live stock updates.
-4. **Expand API Support**: Add more APIs for diverse stock market data.
-5. **Deploy Application**: Use Docker and AWS for scalable deployment.
+---
+
+## Screenshots
+
+### Login Page
+![Login Page](public/ScreenShots/LoginRegister.png)
+
+### AI Model Manager
+![AI Model Manager](public/ScreenShots/TestModel.png)
+
+### Trade Interface
+![Trade Interface](public/ScreenShots/Trade1.png)
+![Trade Execution](public/ScreenShots/Trade2.png)
+
+### Model Training
+![Model Training](public/ScreenShots/TrainModel.png)
+
+### Dashboard
+![Dashboard](public/ScreenShots/Dashboard.png)
+
+### Landing Page
+![Landing Page](public/ScreenShots/LandingPage.png)
+
+---
+
+## Contributing
+We welcome contributions to improve StockSim. Follow these steps:
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Commit and push your changes.
+4. Submit a pull request.
 
 ---
 
 ## License
-This project is licensed under the MIT License. See the LICENSE file for details.
+StockSim is licensed under the MIT License. See `LICENSE` for more details.
 
 ---
-
-## Contact
-For questions or collaboration, please reach out to:
-- **Name**: Muhammad Haris
-- **Email**: muhammadharis337@gmail.com
-- **GitHub**: [github.com/mharis337](https://github.com/mharis337)
 
