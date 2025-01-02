@@ -366,6 +366,73 @@ async def predict(request: Request, current_user: str = Depends(get_current_user
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/model/{model_id}/backtest")
+async def backtest_model(
+    model_id: str, 
+    request: Request,
+    current_user: str = Depends(get_current_user)
+):
+    try:
+        body = await request.json()
+        symbol = body["symbol"].upper()
+        lookback_days = body.get("lookback_days", 30)
+        
+        logger.info(f"Running backtest for {symbol} with lookback of {lookback_days} days")
+        
+        model_info = models_collection.find_one({
+            "id": model_id,
+            "user_email": current_user
+        })
+        
+        if not model_info:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        model_path = model_info.get('path')
+        if not model_path or not os.path.exists(model_path):
+            raise HTTPException(status_code=400, detail="Model file not found")
+
+        df = await get_stock_training_data(symbol, period="1y")
+        if df.empty:
+            raise HTTPException(status_code=400, detail=f"No data available for {symbol}")
+
+        analyzer = ModelAnalyzer(model_path)
+        backtest_results = analyzer.backtest_prediction_accuracy(df, lookback_days)
+        
+        models_collection.update_one(
+            {"id": model_id},
+            {
+                "$set": {
+                    "last_backtest": {
+                        "date": datetime.now(timezone.utc),
+                        "symbol": symbol,
+                        "lookback_days": lookback_days,
+                        "results": backtest_results
+                    }
+                }
+            }
+        )
+        
+        return {
+            "model_id": model_id,
+            "symbol": symbol,
+            "backtest_period": backtest_results["lookback_period"],
+            "metrics": {
+                "direction_accuracy": backtest_results["direction_accuracy"],
+                "average_error": backtest_results.get("avg_error", 0),
+                "profitability": backtest_results["profitability"],
+                "total_trades": backtest_results["total_trades"],
+                "profitable_trades": backtest_results["profitable_trades"]
+            },
+            "features_used": backtest_results["features_used"],
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Backtest error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/models")
 async def get_models(current_user: str = Depends(get_current_user)):
     try:
@@ -375,8 +442,16 @@ async def get_models(current_user: str = Depends(get_current_user)):
             if "_id" in model:
                 model["id"] = str(model["_id"])
                 del model["_id"]
-            else:
-                model["id"] = None
+            
+            if "last_backtest" in model:
+                backtest = model["last_backtest"]
+                model["backtest_summary"] = {
+                    "last_tested": backtest["date"].isoformat(),
+                    "symbol": backtest["symbol"],
+                    "accuracy": backtest["results"]["direction_accuracy"],
+                    "profitability": backtest["results"]["profitability"]
+                }
+        
         return {"models": models}
     except Exception as e:
         logger.error(f"Get models error: {e}", exc_info=True)

@@ -13,6 +13,7 @@
     "@emotion/styled": "^11.14.0",
     "@heroicons/react": "^2.2.0",
     "@mui/material": "^6.3.0",
+    "@radix-ui/react-switch": "^1.1.2",
     "autoprefixer": "^10.4.20",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.1",

@@ -40,8 +40,7 @@ const FeatureSelector = ({
   const [selectedFeatures, setSelectedFeatures] = useState(new Set(previousFeatures));
   const [validationError, setValidationError] = useState(null);
   const [showValidationModal, setShowValidationModal] = useState(false);
-  // Ensure modelInfo has valid required features count
-    // Debug log modelInfo structure
+
     useEffect(() => {
       console.log('Full modelInfo object:', modelInfo);
       if (modelInfo) {
@@ -50,11 +49,9 @@ const FeatureSelector = ({
       }
     }, [modelInfo]);
   
-    // Safely extract required features with fallback
     const getRequiredFeatures = () => {
       if (!modelInfo) return null;
       
-      // Try different possible property names
       const required = modelInfo.requiredFeatures || 
                       modelInfo.required_features ||
                       (modelInfo.model && modelInfo.model.requiredFeatures) ||
@@ -87,7 +84,7 @@ const FeatureSelector = ({
       description: 'Trading volume indicators'
     },
     'Moving Averages': {
-      features: ['SMA_20', 'EMA_20', 'MA5'],
+      features: ['SMA_20', 'EMA_20'],
       description: 'Trend following indicators'
     },
     'MACD': {
@@ -107,11 +104,11 @@ const FeatureSelector = ({
       description: 'Volume-based trend confirmation indicators'
     },
     'Volatility': {
-      features: ['ATR', 'STDDEV'],
+      features: ['ATR', 'STDDEV', 'SAR'],
       description: 'Market volatility measurements'
     },
     'Trend': {
-      features: ['ADX', 'PLUS_DI', 'MINUS_DI'],
+      features: ['ADX', 'PLUS_DI', 'MINUS_DI', 'ICHIMOKU_CONV'],
       description: 'Trend strength and direction indicators'
     },
     'Support/Resistance': {
@@ -123,7 +120,6 @@ const FeatureSelector = ({
   const validateFeatures = () => {
     const count = selectedFeatures.size;
     
-    // Early validation for missing modelInfo
     if (!modelInfo || typeof requiredFeatures !== 'number') {
       return {
         isValid: false,

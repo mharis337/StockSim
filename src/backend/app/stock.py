@@ -25,8 +25,6 @@ router = APIRouter(
     tags=["Stock Management"]
 )
 
-logger = logging.getLogger(__name__)
-
 def decimal_round(amount: Decimal) -> Decimal:
     if not isinstance(amount, Decimal):
         amount = Decimal(str(amount))
@@ -114,21 +112,13 @@ def align_to_market_open(df: pd.DataFrame, interval: str, market_open_time: str 
     eastern = pytz.timezone("US/Eastern")
 
     if df["Date"].dt.tz is None:
-        logger.info("'Date' column is timezone-naive. Localizing to UTC and converting to Eastern Time.")
         df["Date"] = df["Date"].dt.tz_localize('UTC').dt.tz_convert(eastern)
     else:
-        logger.info("'Date' column is already timezone-aware. Converting to Eastern Time.")
         df["Date"] = df["Date"].dt.tz_convert(eastern)
 
     first_timestamp = df["Date"].iloc[0]
-    logger.debug(f"First timestamp after conversion: {first_timestamp}")
-
     market_open = first_timestamp.replace(hour=market_open_hour, minute=market_open_minute, second=0, microsecond=0)
-    logger.debug(f"Market open timestamp: {market_open}")
-
     offset = market_open - first_timestamp
-    logger.debug(f"Offset applied to timestamps: {offset}")
-
     df["Date"] = df["Date"] + offset
 
     return df
@@ -167,7 +157,6 @@ async def create_transaction(
 
             if quantity > shares_owned:
                 raise HTTPException(status_code=400, detail="Insufficient shares")
-
             new_balance = decimal_round(current_balance + total_cost)
         else:
             raise HTTPException(status_code=400, detail="Invalid transaction type")
@@ -203,7 +192,6 @@ async def create_transaction(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Transaction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/user/balance")
@@ -214,7 +202,6 @@ async def get_user_balance(current_user: str = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="User not found")
         return {"balance": float(user.get("balance", 0))}
     except Exception as e:
-        logger.error(f"Get balance error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.options("/user/balance")
@@ -261,8 +248,7 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
                             "market_value": float(market_value)
                         }
                         portfolio.append(portfolio_item)
-                except Exception as e:
-                    logger.error(f"Error processing {symbol}: {e}")
+                except Exception:
                     continue
 
         return {
@@ -271,7 +257,6 @@ async def get_portfolio(current_user: str = Depends(get_current_user)):
         }
 
     except Exception as e:
-        logger.error(f"Get portfolio error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/portfolio/history")
@@ -310,8 +295,7 @@ async def get_portfolio_history(current_user: str = Depends(get_current_user)):
                     current_price = Decimal(str(ticker.history(period='1d')['Close'].iloc[-1]))
                     market_value = decimal_round(current_price * quantity)
                     total_equity += market_value
-                except Exception as e:
-                    logger.error(f"Error fetching price for {symbol}: {e}")
+                except Exception:
                     continue
 
         total_value = Decimal(str(cash_balance)) + total_equity
@@ -356,8 +340,7 @@ async def get_portfolio_history(current_user: str = Depends(get_current_user)):
                     ticker = yf.Ticker(symbol)
                     current_price = Decimal(str(ticker.history(period='1d')['Close'].iloc[-1]))
                     unrealized_pl += Decimal(str(position)) * (current_price - cost_basis[symbol]["avg_price"])
-                except Exception as e:
-                    logger.error(f"Error fetching price for {symbol}: {e}")
+                except Exception:
                     continue
 
         total_pl = realized_pl + unrealized_pl
@@ -450,7 +433,6 @@ async def get_stock_data(
         }
 
     except Exception as e:
-        logger.error(f"Get stock data error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/historic_stock/{symbol}")
@@ -463,12 +445,10 @@ async def get_historic_stock_data(
     try:
         df = yf.download(tickers=symbol, period=timeframe, interval=interval)
         if df.empty:
-            logger.warning(f"No data found for symbol: {symbol}")
             raise HTTPException(status_code=404, detail=f"No data for {symbol}")
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel("Ticker")
-            logger.info("Dropped MultiIndex from columns.")
 
         data_json = process_dataframe(df)
 
@@ -480,5 +460,4 @@ async def get_historic_stock_data(
         }
 
     except Exception as e:
-        logger.error(f"Error in get_historic_stock_data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
